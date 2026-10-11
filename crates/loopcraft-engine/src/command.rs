@@ -26,6 +26,8 @@ pub struct RecordBuffer {
     pub track: usize,
     pub slot: usize,
     pub length: Beats,
+    /// Song beat where recording began (filled in by the engine).
+    pub start: Beats,
     pub notes: Vec<Note>,
     /// Start beat and velocity of notes currently held, indexed by pitch.
     pub(crate) held: [Option<(Beats, u8)>; 128],
@@ -33,7 +35,7 @@ pub struct RecordBuffer {
 
 impl RecordBuffer {
     pub fn new(track: usize, slot: usize, length: Beats) -> Box<Self> {
-        Box::new(Self { track, slot, length, notes: Vec::with_capacity(4096), held: [None; 128] })
+        Box::new(Self { track, slot, length, start: 0.0, notes: Vec::with_capacity(4096), held: [None; 128] })
     }
 }
 
@@ -48,6 +50,9 @@ pub enum Command {
     SetMetronome(bool),
 
     LaunchClip { track: usize, slot: usize },
+    /// Launch with clip position 0 aligned to song beat `at` (which may be
+    /// slightly in the past), e.g. to loop a just-recorded clip seamlessly.
+    LaunchClipAt { track: usize, slot: usize, at: Beats },
     /// Release for clips in Gate launch mode.
     ReleaseClip { track: usize, slot: usize },
     StopTrack { track: usize },

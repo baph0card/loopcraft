@@ -350,6 +350,14 @@ impl Core {
             Command::SetLoop(r) => self.loop_region = r.filter(|(a, b)| b > a),
             Command::SetMetronome(on) => self.metronome = on,
             Command::LaunchClip { track, slot } => self.launch_clip(track, slot),
+            Command::LaunchClipAt { track, slot, at } => {
+                if let Some(t) = self.tracks.get_mut(track) {
+                    if t.slots.get(slot).is_some_and(|c| c.is_some()) {
+                        t.pending = Some(Pending { kind: PendingKind::Launch(slot), at });
+                        self.playing = true;
+                    }
+                }
+            }
             Command::ReleaseClip { track, slot } => {
                 if let Some(t) = self.tracks.get(track) {
                     let gate = t.slots.get(slot).and_then(|c| c.as_ref()).map(|c| c.launch_mode == LaunchMode::Gate).unwrap_or(false);
@@ -675,6 +683,7 @@ impl Core {
             }
         }
         rec.buf.notes.sort_unstable_by(|a, b| a.start.total_cmp(&b.start));
+        rec.buf.start = rec.start;
         if let Some(t) = self.state.tracks.get(rec.buf.track) {
             t.recording_slot.store(NONE, Relaxed);
         }

@@ -116,7 +116,8 @@ impl DrumSynth {
         if done {
             self.active = false;
         }
-        s * self.choke_gain
+        // Headroom: a full-velocity kick plus clap should stay below 0 dBFS.
+        s * self.choke_gain * 0.7
     }
 }
 

@@ -40,7 +40,7 @@ rtrb = "0.4"
 clap-sys = "0.5"
 libloading = "0.9"
 cpal = "0.18"
-eframe = "0.36"
+eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
 anyhow = "1"
 
 [profile.dev]
