@@ -1,7 +1,21 @@
 [package]
 name = "loopcraft-plugin"
+description = "Third-party plugin hosting (CLAP) for LoopCraft"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
+loopcraft-core.workspace = true
+loopcraft-dsp.workspace = true
+loopcraft-engine.workspace = true
+clap-sys.workspace = true
+libloading.workspace = true
+
+# A tiny CLAP plugin library (a gain effect and a sine instrument) used by
+# the host tests. `cargo test` builds it to target/<profile>/examples/.
+[[example]]
+name = "clap_test_plugins"
+crate-type = ["cdylib"]

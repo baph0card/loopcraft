@@ -1,7 +1,16 @@
 [package]
 name = "loopcraft-io"
+description = "Audio file loading, MIDI import/export, offline rendering and demo content for LoopCraft"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
+loopcraft-core.workspace = true
+loopcraft-dsp.workspace = true
+loopcraft-engine.workspace = true
+hound.workspace = true
+midly.workspace = true
+anyhow.workspace = true
