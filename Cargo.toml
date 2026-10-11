@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/loopcraft-core",
+    "crates/loopcraft-dsp",
+    "crates/loopcraft-engine",
+    "crates/loopcraft-io",
+    "crates/loopcraft-plugin",
+    "crates/loopcraft-cli",
+    "crates/loopcraft-app",
+]
+default-members = [
+    "crates/loopcraft-core",
+    "crates/loopcraft-dsp",
+    "crates/loopcraft-engine",
+    "crates/loopcraft-io",
+    "crates/loopcraft-plugin",
+    "crates/loopcraft-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/loopcraft/loopcraft"
+authors = ["LoopCraft contributors"]
+rust-version = "1.85"
+
+[workspace.dependencies]
+loopcraft-core = { path = "crates/loopcraft-core" }
+loopcraft-dsp = { path = "crates/loopcraft-dsp" }
+loopcraft-engine = { path = "crates/loopcraft-engine" }
+loopcraft-io = { path = "crates/loopcraft-io" }
+loopcraft-plugin = { path = "crates/loopcraft-plugin" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hound = "3.5"
+midly = "0.5"
+rtrb = "0.4"
+clap-sys = "0.5"
+libloading = "0.9"
+cpal = "0.18"
+eframe = "0.36"
+anyhow = "1"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 4

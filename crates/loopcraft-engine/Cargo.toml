@@ -1,0 +1,13 @@
+[package]
+name = "loopcraft-engine"
+description = "Real-time audio engine for LoopCraft: transport, clip launching, arrangement and mixer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+loopcraft-core.workspace = true
+loopcraft-dsp.workspace = true
+rtrb.workspace = true
