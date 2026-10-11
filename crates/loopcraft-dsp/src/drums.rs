@@ -21,6 +21,10 @@ struct DrumSynth {
     active: bool,
     choke_gain: f32,
     tune: f32,
+    /// Last output sample and a decaying offset that bridges the jump when
+    /// a still-ringing voice is retriggered, so retriggers don't click.
+    last: f32,
+    bridge: f32,
 }
 
 impl DrumSynth {
@@ -60,10 +64,13 @@ impl DrumSynth {
             active: false,
             choke_gain: 1.0,
             tune: 2f32.powf(tune_semitones / 12.0),
+            last: 0.0,
+            bridge: 0.0,
         }
     }
 
     fn trigger(&mut self) {
+        self.bridge = if self.active { self.last } else { 0.0 };
         self.t = 0.0;
         self.phase = 0.0;
         self.phase2 = 0.0;
@@ -128,7 +135,11 @@ impl DrumSynth {
             self.active = false;
         }
         // Headroom: a full-velocity kick plus clap should stay below 0 dBFS.
-        s * self.choke_gain * 0.7
+        let out = s * self.choke_gain * 0.7;
+        // ~1 ms bridge from the previous waveform (t is seconds since trigger).
+        let bridged = out + self.bridge * (-t / 0.001).exp();
+        self.last = bridged;
+        bridged
     }
 }
 

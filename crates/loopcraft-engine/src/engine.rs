@@ -59,7 +59,10 @@ struct Channel {
 impl Channel {
     fn new(effects: Vec<FxSlot>, mixer: &MixerSettings) -> Self {
         let g = db_to_gain(mixer.volume_db);
-        Self { effects, gain_target: g, gain_now: g, pan: mixer.pan, mute: mixer.mute, l: vec![0.0; CHUNK], r: vec![0.0; CHUNK] }
+        // Start the fader where the first block will want it, so a muted or
+        // non-soloed channel doesn't leak a ramp-down at startup.
+        let now = if mixer.mute { 0.0 } else { g };
+        Self { effects, gain_target: g, gain_now: now, pan: mixer.pan, mute: mixer.mute, l: vec![0.0; CHUNK], r: vec![0.0; CHUNK] }
     }
 
     fn clear(&mut self, n: usize) {
@@ -258,6 +261,12 @@ impl Core {
             })
             .collect::<Vec<_>>();
 
+        let mut tracks = tracks;
+        if tracks.iter().any(|t| t.solo) {
+            for t in tracks.iter_mut().filter(|t| !t.solo) {
+                t.chan.gain_now = 0.0;
+            }
+        }
         let returns = p.returns.iter().map(|r| Channel::new(build_effects(&r.effects, sample_rate, loader, plugins), &r.mixer)).collect();
         let master = Channel::new(build_effects(&p.master.effects, sample_rate, loader, plugins), &p.master.mixer);
         let state = Arc::new(EngineState::new(tracks.len(), n_ret));
