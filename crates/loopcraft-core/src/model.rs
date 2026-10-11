@@ -581,6 +581,7 @@ impl Default for DrumPad {
 #[serde(default)]
 pub struct DrumRackParams {
     pub pads: Vec<DrumPad>,
+    pub gain_db: f32,
 }
 
 impl Default for DrumRackParams {
@@ -599,6 +600,7 @@ impl Default for DrumRackParams {
                 pad(46, OpenHat, Some(1)),
                 pad(56, Cowbell, None),
             ],
+            gain_db: 0.0,
         }
     }
 }

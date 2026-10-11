@@ -1,7 +1,20 @@
 [package]
 name = "loopcraft-cli"
+description = "Command-line tools for LoopCraft: render, inspect, import/export"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "loopcraft"
+path = "src/main.rs"
 
 [dependencies]
+loopcraft-core.workspace = true
+loopcraft-dsp.workspace = true
+loopcraft-engine.workspace = true
+loopcraft-io.workspace = true
+loopcraft-plugin.workspace = true
+anyhow.workspace = true

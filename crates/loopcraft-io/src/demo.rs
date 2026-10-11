@@ -84,6 +84,7 @@ pub fn render_break(dir: &Path, sample_rate: u32) -> Result<()> {
             pad.tune_semitones = 2.0;
             pad
         }).collect(),
+        ..Default::default()
     };
     let t = p.add_track(Track::midi("Break", DeviceSpec::DrumRack(rack)));
     let mut n = Vec::new();
@@ -241,11 +242,11 @@ fn build_arrangement(p: &mut Project, drums: usize, bass: usize, chords: usize, 
 
     let c = take(p, chords, 0);
     p.tracks[chords].arrangement.push(ArrangementClip::looped(0.0, 32.0 * bar, c));
-    p.tracks[chords].automation.push(AutomationLane { target: AutomationTarget::Volume, points: vec![(0.0, -30.0), (8.0 * bar, -3.0)] });
+    p.tracks[chords].automation.push(AutomationLane { target: AutomationTarget::Volume, points: vec![(0.0, -14.0), (8.0 * bar, -3.0)] });
     // Effect 0 = Auto Filter, param 0 = cutoff (normalized 0..1 over 20 Hz..18 kHz).
     p.tracks[chords].automation.push(AutomationLane {
         target: AutomationTarget::Effect { index: 0, param: 0 },
-        points: vec![(0.0, 0.02), (16.0 * bar, 0.12), (24.0 * bar, 0.35), (28.0 * bar, 0.05)],
+        points: vec![(0.0, 0.05), (16.0 * bar, 0.12), (24.0 * bar, 0.35), (28.0 * bar, 0.06)],
     });
 
     let (s1, s2, s3) = (sections[1], sections[2], sections[3]);

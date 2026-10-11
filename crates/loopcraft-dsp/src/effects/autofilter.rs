@@ -5,7 +5,7 @@ use crate::util::Svf;
 use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::AutoFilterParams;
 
-const PARAMS: &[ParamInfo] = &[
+pub(crate) const PARAMS: &[ParamInfo] = &[
     ParamInfo::new("Cutoff", 20.0, 18_000.0, "Hz"),
     ParamInfo::new("Resonance", 0.0, 0.95, ""),
     ParamInfo::new("LFO Amount", 0.0, 5.0, "oct"),

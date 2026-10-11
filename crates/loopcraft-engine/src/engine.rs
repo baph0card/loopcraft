@@ -1066,6 +1066,13 @@ impl Engine {
                     new.beat = self.core.beat;
                     new.playing = self.core.playing;
                     new.tempo = self.core.tempo;
+                    // Keep clips playing across structural edits (same track
+                    // index, slot still filled).
+                    for (n, o) in new.tracks.iter_mut().zip(self.core.tracks.iter()) {
+                        n.follows_arrangement = o.follows_arrangement;
+                        n.session = o.session.filter(|s| n.slots.get(s.slot).is_some_and(|c| c.is_some()));
+                        n.pending = o.pending;
+                    }
                     let old = std::mem::replace(&mut self.core, new);
                     self.dispose(EngineEvent::Garbage(Garbage::Core(old)));
                 }

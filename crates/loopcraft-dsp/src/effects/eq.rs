@@ -5,7 +5,7 @@ use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::{EqBandKind, EqParams, db_to_gain};
 
 /// Params are laid out per band: [freq, gain, q] for bands 0..8, then output.
-const PARAMS: &[ParamInfo] = &[
+pub(crate) const PARAMS: &[ParamInfo] = &[
     ParamInfo::new("1 Freq", 20.0, 20_000.0, "Hz"),
     ParamInfo::new("1 Gain", -15.0, 15.0, "dB"),
     ParamInfo::new("1 Q", 0.1, 18.0, ""),

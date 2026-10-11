@@ -5,7 +5,7 @@ use crate::util::{DelayLine, Smoothed};
 use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::DelayParams;
 
-const PARAMS: &[ParamInfo] = &[
+pub(crate) const PARAMS: &[ParamInfo] = &[
     ParamInfo::new("Time (beats)", 0.0625, 4.0, "beats"),
     ParamInfo::new("Feedback", 0.0, 0.98, ""),
     ParamInfo::new("Filter", 200.0, 18_000.0, "Hz"),

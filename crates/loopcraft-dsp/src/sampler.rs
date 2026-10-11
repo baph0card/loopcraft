@@ -5,7 +5,7 @@ use crate::{AudioBuffer, Instrument, ParamInfo, ProcessContext};
 use loopcraft_core::{SamplerParams, db_to_gain};
 use std::sync::Arc;
 
-const PARAMS: &[ParamInfo] = &[
+pub(crate) const PARAMS: &[ParamInfo] = &[
     ParamInfo::new("Volume", -40.0, 6.0, "dB"),
     ParamInfo::new("Attack", 0.001, 2.0, "s"),
     ParamInfo::new("Release", 0.005, 4.0, "s"),

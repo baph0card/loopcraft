@@ -4,7 +4,7 @@ use super::mix;
 use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::{SaturatorParams, db_to_gain};
 
-const PARAMS: &[ParamInfo] = &[
+pub(crate) const PARAMS: &[ParamInfo] = &[
     ParamInfo::new("Drive", 0.0, 36.0, "dB"),
     ParamInfo::new("Output", -36.0, 0.0, "dB"),
     ParamInfo::new("Dry/Wet", 0.0, 1.0, ""),

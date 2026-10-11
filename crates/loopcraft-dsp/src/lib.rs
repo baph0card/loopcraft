@@ -7,6 +7,7 @@
 pub mod drums;
 pub mod effects;
 pub mod sampler;
+pub mod specs;
 pub mod stretch;
 pub mod synth;
 pub mod util;

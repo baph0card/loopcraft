@@ -4,7 +4,7 @@ use super::{MAX_BLOCK, mix};
 use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::{CompressorParams, db_to_gain};
 
-const PARAMS: &[ParamInfo] = &[
+pub(crate) const PARAMS: &[ParamInfo] = &[
     ParamInfo::new("Threshold", -60.0, 0.0, "dB"),
     ParamInfo::new("Ratio", 1.0, 20.0, ":1"),
     ParamInfo::new("Attack", 0.1, 100.0, "ms"),

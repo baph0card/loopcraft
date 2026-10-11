@@ -6,7 +6,7 @@ use crate::util::DelayLine;
 use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::ReverbParams;
 
-const PARAMS: &[ParamInfo] = &[
+pub(crate) const PARAMS: &[ParamInfo] = &[
     ParamInfo::new("Size", 0.0, 1.0, ""),
     ParamInfo::new("Damping", 0.0, 1.0, ""),
     ParamInfo::new("Width", 0.0, 1.0, ""),
