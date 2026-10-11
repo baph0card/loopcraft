@@ -124,10 +124,10 @@ fn clip_properties(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
         if ui.small_button("Delete clip").clicked() {
             app.delete_clip(cref);
         }
-        if let ClipRef::Session { track, slot } = cref {
-            if ui.small_button("Duplicate down").clicked() {
-                app.duplicate_clip_down(track, slot);
-            }
+        if let ClipRef::Session { track, slot } = cref
+            && ui.small_button("Duplicate down").clicked()
+        {
+            app.duplicate_clip_down(track, slot);
         }
     });
 }
@@ -233,13 +233,12 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
         }
 
         // Playhead for session clips that are playing.
-        if let ClipRef::Session { track, slot } = cref {
-            if let Some(ts) = app.engine.state.tracks.get(track) {
-                if ts.playing_slot.load(Relaxed) == slot as i32 {
-                    let x = x_of(ts.clip_position.load());
-                    p.line_segment([pos2(x, grid_r.top()), pos2(x, grid_r.bottom())], Stroke::new(1.5, theme::ACCENT));
-                }
-            }
+        if let ClipRef::Session { track, slot } = cref
+            && let Some(ts) = app.engine.state.tracks.get(track)
+            && ts.playing_slot.load(Relaxed) == slot as i32
+        {
+            let x = x_of(ts.clip_position.load());
+            p.line_segment([pos2(x, grid_r.top()), pos2(x, grid_r.bottom())], Stroke::new(1.5, theme::ACCENT));
         }
 
         // Interaction.
@@ -254,63 +253,62 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
         let snap = |b: f64, g: f64| (b / g).floor() * g;
         let grid = app.piano_grid;
 
-        if resp.double_clicked() {
-            if let Some((i, _)) = resp.interact_pointer_pos().and_then(hit) {
-                app.checkpoint();
-                edit_notes(app, cref, |ns| {
-                    ns.remove(i);
-                });
-                app.piano_selected = None;
-                app.commit_clip(cref);
-                return;
-            }
+        if resp.double_clicked()
+            && let Some((i, _)) = resp.interact_pointer_pos().and_then(hit)
+        {
+            app.checkpoint();
+            edit_notes(app, cref, |ns| {
+                ns.remove(i);
+            });
+            app.piano_selected = None;
+            app.commit_clip(cref);
+            return;
         }
-        if resp.clicked() {
-            if let Some(pos) = resp.interact_pointer_pos() {
-                match hit(pos) {
-                    Some((i, _)) => app.piano_selected = Some(i),
-                    None if grid_r.contains(pos) => {
-                        let start = snap(beat_at(pos.x), grid);
-                        let pitch = pitch_at(pos.y).clamp(0, 127) as u8;
-                        if start < len {
-                            app.checkpoint();
-                            let mut idx = 0;
-                            edit_notes(app, cref, |ns| {
-                                ns.push(Note::new(pitch, start, grid, 100));
-                                idx = ns.len() - 1;
-                            });
-                            app.piano_selected = Some(idx);
-                            app.commit_clip(cref);
-                        }
+        if resp.clicked()
+            && let Some(pos) = resp.interact_pointer_pos()
+        {
+            match hit(pos) {
+                Some((i, _)) => app.piano_selected = Some(i),
+                None if grid_r.contains(pos) => {
+                    let start = snap(beat_at(pos.x), grid);
+                    let pitch = pitch_at(pos.y).clamp(0, 127) as u8;
+                    if start < len {
+                        app.checkpoint();
+                        let mut idx = 0;
+                        edit_notes(app, cref, |ns| {
+                            ns.push(Note::new(pitch, start, grid, 100));
+                            idx = ns.len() - 1;
+                        });
+                        app.piano_selected = Some(idx);
+                        app.commit_clip(cref);
                     }
-                    None => {}
                 }
+                None => {}
             }
         }
-        if resp.drag_started() {
-            if let Some(pos) = resp.interact_pointer_pos() {
-                if let Some((i, resize)) = hit(pos) {
-                    app.checkpoint();
-                    app.piano_selected = Some(i);
-                    app.piano_drag = Some((i, resize, notes[i], beat_at(pos.x), pitch_at(pos.y)));
-                }
-            }
+        if resp.drag_started()
+            && let Some(pos) = resp.interact_pointer_pos()
+            && let Some((i, resize)) = hit(pos)
+        {
+            app.checkpoint();
+            app.piano_selected = Some(i);
+            app.piano_drag = Some((i, resize, notes[i], beat_at(pos.x), pitch_at(pos.y)));
         }
-        if let (Some((i, resize, orig, b0, p0)), Some(pos)) = (app.piano_drag, resp.interact_pointer_pos()) {
-            if resp.dragged() {
-                let db = ((beat_at(pos.x) - b0) / grid).round() * grid;
-                let dp = pitch_at(pos.y) - p0;
-                edit_notes(app, cref, |ns| {
-                    if let Some(n) = ns.get_mut(i) {
-                        if resize {
-                            n.length = (orig.length + db).max(grid.min(orig.length));
-                        } else {
-                            n.start = (orig.start + db).clamp(0.0, (len - grid).max(0.0));
-                            n.pitch = (orig.pitch as i32 + dp).clamp(0, 127) as u8;
-                        }
+        if let (Some((i, resize, orig, b0, p0)), Some(pos)) = (app.piano_drag, resp.interact_pointer_pos())
+            && resp.dragged()
+        {
+            let db = ((beat_at(pos.x) - b0) / grid).round() * grid;
+            let dp = pitch_at(pos.y) - p0;
+            edit_notes(app, cref, |ns| {
+                if let Some(n) = ns.get_mut(i) {
+                    if resize {
+                        n.length = (orig.length + db).max(grid.min(orig.length));
+                    } else {
+                        n.start = (orig.start + db).clamp(0.0, (len - grid).max(0.0));
+                        n.pitch = (orig.pitch as i32 + dp).clamp(0, 127) as u8;
                     }
-                });
-            }
+                }
+            });
         }
         if resp.drag_stopped() && app.piano_drag.is_some() {
             app.piano_drag = None;
@@ -358,13 +356,12 @@ fn waveform(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
         let x = rect.left() + (b as f64 / clip.length) as f32 * rect.width();
         p.line_segment([pos2(x, rect.top()), pos2(x, rect.top() + if b % 4 == 0 { 12.0 } else { 6.0 })], Stroke::new(1.0, theme::DIM));
     }
-    if let ClipRef::Session { track, slot } = cref {
-        if let Some(ts) = app.engine.state.tracks.get(track) {
-            if ts.playing_slot.load(Relaxed) == slot as i32 {
-                let x = rect.left() + (ts.clip_position.load() / clip.length) as f32 * rect.width();
-                p.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(1.5, theme::ACCENT));
-            }
-        }
+    if let ClipRef::Session { track, slot } = cref
+        && let Some(ts) = app.engine.state.tracks.get(track)
+        && ts.playing_slot.load(Relaxed) == slot as i32
+    {
+        let x = rect.left() + (ts.clip_position.load() / clip.length) as f32 * rect.width();
+        p.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(1.5, theme::ACCENT));
     }
     p.text(
         rect.left_bottom() + vec2(6.0, -6.0),

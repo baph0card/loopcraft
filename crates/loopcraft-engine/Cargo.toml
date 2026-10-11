@@ -11,3 +11,6 @@ authors.workspace = true
 loopcraft-core.workspace = true
 loopcraft-dsp.workspace = true
 rtrb.workspace = true
+
+[lints]
+workspace = true

@@ -20,3 +20,6 @@ loopcraft-plugin.workspace = true
 cpal.workspace = true
 eframe.workspace = true
 anyhow.workspace = true
+
+[lints]
+workspace = true

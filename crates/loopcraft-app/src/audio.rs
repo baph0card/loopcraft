@@ -34,11 +34,11 @@ impl Drop for Output {
 /// Find the default output device and its preferred rate.
 pub fn probe() -> DeviceInfo {
     let host = cpal::default_host();
-    if let Some(dev) = host.default_output_device() {
-        if let Ok(cfg) = dev.default_output_config() {
-            let name = dev.description().map(|d| d.to_string()).unwrap_or_else(|_| "Default output".into());
-            return DeviceInfo { sample_rate: cfg.sample_rate() as f32, channels: cfg.channels() as usize, name, device: Some(dev) };
-        }
+    if let Some(dev) = host.default_output_device()
+        && let Ok(cfg) = dev.default_output_config()
+    {
+        let name = dev.description().map(|d| d.to_string()).unwrap_or_else(|_| "Default output".into());
+        return DeviceInfo { sample_rate: cfg.sample_rate() as f32, channels: cfg.channels() as usize, name, device: Some(dev) };
     }
     DeviceInfo { sample_rate: 48_000.0, channels: 2, name: "No audio device (silent)".into(), device: None }
 }

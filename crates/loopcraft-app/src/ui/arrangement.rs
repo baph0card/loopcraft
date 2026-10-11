@@ -76,11 +76,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             p.text(pos2(x_of(b) + 3.0, ruler.center().y), Align2::LEFT_CENTER, format!("{}", (b / bar) as i64 + 1), FontId::monospace(10.0), theme::DIM);
             b += bar * step_bars;
         }
-        if r_resp.clicked() {
-            if let Some(pos) = r_resp.interact_pointer_pos() {
-                let beat = beat_of(pos.x).floor();
-                app.send(Command::Seek(beat));
-            }
+        if r_resp.clicked()
+            && let Some(pos) = r_resp.interact_pointer_pos()
+        {
+            let beat = beat_of(pos.x).floor();
+            app.send(Command::Seek(beat));
         }
         let click_beat = r_resp.interact_pointer_pos().map(|p| (beat_of(p.x) / bar).floor() * bar);
         r_resp.context_menu(|ui| {
@@ -134,10 +134,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // Background for double-click-to-create.
             let body = Rect::from_min_max(pos2(area.left() + HEAD_W, y), lane.max);
             let b_resp = ui.interact(body, ui.id().with(("lane", t)), Sense::click());
-            if b_resp.double_clicked() && track.kind == TrackKind::Midi {
-                if let Some(pos) = b_resp.interact_pointer_pos() {
-                    create = Some((t, (beat_of(pos.x) / bar).floor() * bar));
-                }
+            if b_resp.double_clicked()
+                && track.kind == TrackKind::Midi
+                && let Some(pos) = b_resp.interact_pointer_pos()
+            {
+                create = Some((t, (beat_of(pos.x) / bar).floor() * bar));
             }
 
             for (i, ac) in track.arrangement.iter().enumerate() {
@@ -154,10 +155,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 if c_resp.clicked() {
                     select = Some(ClipRef::Arrangement { track: t, index: i });
                 }
-                if c_resp.drag_started() {
-                    if let Some(pos) = c_resp.interact_pointer_pos() {
-                        start_drag = Some((t, i, ac.start, beat_of(pos.x)));
-                    }
+                if c_resp.drag_started()
+                    && let Some(pos) = c_resp.interact_pointer_pos()
+                {
+                    start_drag = Some((t, i, ac.start, beat_of(pos.x)));
                 }
                 c_resp.context_menu(|ui| {
                     if ui.button("Delete").clicked() {

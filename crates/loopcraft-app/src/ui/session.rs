@@ -36,20 +36,20 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 }
 
 fn header(app: &mut App, ui: &mut egui::Ui, label: &str, color: Color32, selected: bool, rename: Option<Rename>) -> egui::Response {
-    if let (Some(target), Some((cur, text))) = (rename, app.renaming.as_mut()) {
-        if *cur == target {
-            let r = ui.add(egui::TextEdit::singleline(text).desired_width(COL_W - 8.0));
-            r.request_focus();
-            if r.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                let (target, text) = app.renaming.take().expect("renaming");
-                app.checkpoint();
-                match target {
-                    Rename::Track(t) => app.project.tracks[t].name = text,
-                    Rename::Scene(s) => app.project.scenes[s].name = text,
-                }
+    if let (Some(target), Some((cur, text))) = (rename, app.renaming.as_mut())
+        && *cur == target
+    {
+        let r = ui.add(egui::TextEdit::singleline(text).desired_width(COL_W - 8.0));
+        r.request_focus();
+        if r.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            let (target, text) = app.renaming.take().expect("renaming");
+            app.checkpoint();
+            match target {
+                Rename::Track(t) => app.project.tracks[t].name = text,
+                Rename::Scene(s) => app.project.scenes[s].name = text,
             }
-            return r;
         }
+        return r;
     }
     let (rect, resp) = ui.allocate_exact_size(vec2(COL_W, HEADER_H), Sense::click());
     let p = ui.painter();

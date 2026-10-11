@@ -134,10 +134,10 @@ fn handle_keys(app: &mut App, ctx: &egui::Context) {
             Key::Delete | Key::Backspace => {
                 if let (Some(n), Some(c)) = (app.piano_selected, app.selected_clip) {
                     app.checkpoint();
-                    if let Some(loopcraft_core::ClipContent::Midi { notes }) = app.clip_mut(c).map(|c| &mut c.content) {
-                        if n < notes.len() {
-                            notes.remove(n);
-                        }
+                    if let Some(loopcraft_core::ClipContent::Midi { notes }) = app.clip_mut(c).map(|c| &mut c.content)
+                        && n < notes.len()
+                    {
+                        notes.remove(n);
                     }
                     app.piano_selected = None;
                     app.commit_clip(c);

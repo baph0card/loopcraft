@@ -52,3 +52,9 @@ opt-level = 2
 [profile.release]
 lto = "thin"
 codegen-units = 4
+
+[workspace.lints.clippy]
+# DSP state machines expose `next()` for the next sample; they are not iterators.
+should_implement_trait = "allow"
+too_many_arguments = "allow"
+field_reassign_with_default = "allow"

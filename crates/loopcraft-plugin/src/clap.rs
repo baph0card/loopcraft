@@ -185,11 +185,15 @@ impl ClapInstance {
                 return Err(format!("failed to create {id}"));
             }
             if !(*plugin).init.map(|f| f(plugin)).unwrap_or(false) {
-                (*plugin).destroy.map(|f| f(plugin));
+                if let Some(f) = (*plugin).destroy {
+                    f(plugin)
+                }
                 return Err(format!("{id} failed to initialize"));
             }
             if !(*plugin).activate.map(|f| f(plugin, sample_rate, 1, max_block)).unwrap_or(false) {
-                (*plugin).destroy.map(|f| f(plugin));
+                if let Some(f) = (*plugin).destroy {
+                    f(plugin)
+                }
                 return Err(format!("{id} failed to activate"));
             }
             let mut events = Box::new(InEvents { notes: Vec::with_capacity(MAX_EVENTS) });
@@ -260,11 +264,17 @@ impl ClapInstance {
 impl Drop for ClapInstance {
     fn drop(&mut self) {
         unsafe {
-            if self.started {
-                (*self.plugin).stop_processing.map(|f| f(self.plugin));
+            if self.started
+                && let Some(f) = (*self.plugin).stop_processing
+            {
+                f(self.plugin)
             }
-            (*self.plugin).deactivate.map(|f| f(self.plugin));
-            (*self.plugin).destroy.map(|f| f(self.plugin));
+            if let Some(f) = (*self.plugin).deactivate {
+                f(self.plugin)
+            }
+            if let Some(f) = (*self.plugin).destroy {
+                f(self.plugin)
+            }
         }
         let _ = &self.host;
     }

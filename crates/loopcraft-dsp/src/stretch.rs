@@ -95,7 +95,7 @@ impl GrainStretcher {
     /// maps into the file right now, in source samples.
     #[inline]
     pub fn next(&mut self, buf: &AudioBuffer, source_pos: f64) -> (f32, f32) {
-        if self.counter % self.hop == 0 {
+        if self.counter.is_multiple_of(self.hop) {
             let start = match self.last.map(|i| self.grains[i]) {
                 Some(g) if g.active => self.best_start(buf, source_pos, g.start + g.age as f64 * self.pitch_ratio),
                 _ => source_pos,

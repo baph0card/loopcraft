@@ -138,7 +138,6 @@ pub fn set_param(spec: &mut DeviceSpec, i: usize, v: f32) {
 mod tests {
     use super::*;
     use crate::{Device, NoSamples, build_device};
-    use loopcraft_core::*;
 
     /// The spec helpers must expose exactly the same parameter tables as
     /// the running devices, or automation and UI would target the wrong knob.

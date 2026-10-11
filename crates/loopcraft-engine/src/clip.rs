@@ -172,11 +172,11 @@ pub fn schedule_midi(notes: &[Note], length: Beats, looping: bool, place: Placem
 
     let mut end = b1;
     let mut stop_at: Option<Beats> = None;
-    if let Some(e) = place.end {
-        if e <= b1 {
-            end = end.min(e);
-            stop_at = Some(e);
-        }
+    if let Some(e) = place.end
+        && e <= b1
+    {
+        end = end.min(e);
+        stop_at = Some(e);
     }
     if !looping {
         let one_shot_end = place.start + len;

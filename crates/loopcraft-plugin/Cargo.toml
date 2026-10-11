@@ -19,3 +19,6 @@ libloading.workspace = true
 [[example]]
 name = "clap_test_plugins"
 crate-type = ["cdylib"]
+
+[lints]
+workspace = true

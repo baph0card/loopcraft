@@ -174,11 +174,11 @@ impl App {
                 self.status = format!("Recorded {} notes", rec.notes.len());
             }
         }
-        if let Some(rx) = &self.export_rx {
-            if let Ok(msg) = rx.try_recv() {
-                self.status = msg;
-                self.export_rx = None;
-            }
+        if let Some(rx) = &self.export_rx
+            && let Ok(msg) = rx.try_recv()
+        {
+            self.status = msg;
+            self.export_rx = None;
         }
     }
 
@@ -398,10 +398,10 @@ impl App {
                 self.push_clip(track, slot);
             }
             ClipRef::Arrangement { track, index } => {
-                if let Some(t) = self.project.tracks.get_mut(track) {
-                    if index < t.arrangement.len() {
-                        t.arrangement.remove(index);
-                    }
+                if let Some(t) = self.project.tracks.get_mut(track)
+                    && index < t.arrangement.len()
+                {
+                    t.arrangement.remove(index);
                 }
                 self.rebuild();
             }

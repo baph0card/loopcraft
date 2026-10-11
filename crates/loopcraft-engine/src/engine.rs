@@ -248,7 +248,7 @@ impl Core {
                     live: [(false, 0, 0); 64],
                     live_len: 0,
                     active_notes: [false; 128],
-                    rng: Noise::with_seed(0xA5A5_0000 ^ i as u32 + 1),
+                    rng: Noise::with_seed(0xA5A5_0000 ^ (i as u32 + 1)),
                     stretcher: GrainStretcher::new(sample_rate, 60.0),
                     is_key_source: key_sources.contains(&i),
                     key_l: vec![0.0; CHUNK],
@@ -347,11 +347,11 @@ impl Core {
             Command::SetMetronome(on) => self.metronome = on,
             Command::LaunchClip { track, slot } => self.launch_clip(track, slot),
             Command::LaunchClipAt { track, slot, at } => {
-                if let Some(t) = self.tracks.get_mut(track) {
-                    if t.slots.get(slot).is_some_and(|c| c.is_some()) {
-                        t.pending = Some(Pending { kind: PendingKind::Launch(slot), at });
-                        self.playing = true;
-                    }
+                if let Some(t) = self.tracks.get_mut(track)
+                    && t.slots.get(slot).is_some_and(|c| c.is_some())
+                {
+                    t.pending = Some(Pending { kind: PendingKind::Launch(slot), at });
+                    self.playing = true;
                 }
             }
             Command::ReleaseClip { track, slot } => {
@@ -365,10 +365,10 @@ impl Core {
             }
             Command::StopTrack { track } => {
                 let at = self.launch_time(None);
-                if let Some(t) = self.tracks.get_mut(track) {
-                    if t.session.is_some() || t.pending.is_some() {
-                        t.pending = Some(Pending { kind: PendingKind::Stop, at });
-                    }
+                if let Some(t) = self.tracks.get_mut(track)
+                    && (t.session.is_some() || t.pending.is_some())
+                {
+                    t.pending = Some(Pending { kind: PendingKind::Stop, at });
                 }
             }
             Command::LaunchScene { scene } => self.launch_scene(scene),
@@ -439,8 +439,10 @@ impl Core {
                     t.recording_slot.store(buf.slot as i32, Relaxed);
                 }
                 self.ensure_playing();
-                if let Some(old) = self.recording.replace(Recording { buf, start: at }) {
-                    self.state.tracks.get(old.buf.track).map(|t| t.recording_slot.store(NONE, Relaxed));
+                if let Some(old) = self.recording.replace(Recording { buf, start: at })
+                    && let Some(t) = self.state.tracks.get(old.buf.track)
+                {
+                    t.recording_slot.store(NONE, Relaxed)
                 }
             }
             Command::ReplaceClip { track, slot, clip } => {
@@ -494,11 +496,11 @@ impl Core {
 
     fn live_note(&mut self, track: usize, on: bool, note: u8, vel: u8) {
         let beat = self.beat;
-        if let Some(t) = self.tracks.get_mut(track) {
-            if t.live_len < t.live.len() {
-                t.live[t.live_len] = (on, note, vel);
-                t.live_len += 1;
-            }
+        if let Some(t) = self.tracks.get_mut(track)
+            && t.live_len < t.live.len()
+        {
+            t.live[t.live_len] = (on, note, vel);
+            t.live_len += 1;
         }
         if let Some(rec) = self.recording.as_mut() {
             if rec.buf.track != track || beat < rec.start {
@@ -508,10 +510,10 @@ impl Core {
             let n = note as usize & 127;
             if on {
                 rec.buf.held[n] = Some((pos, vel));
-            } else if let Some((start, v)) = rec.buf.held[n].take() {
-                if rec.buf.notes.len() < rec.buf.notes.capacity() {
-                    rec.buf.notes.push(Note::new(note, start, (pos - start).max(1.0 / 64.0), v));
-                }
+            } else if let Some((start, v)) = rec.buf.held[n].take()
+                && rec.buf.notes.len() < rec.buf.notes.capacity()
+            {
+                rec.buf.notes.push(Note::new(note, start, (pos - start).max(1.0 / 64.0), v));
             }
         }
     }
@@ -566,8 +568,10 @@ impl Core {
             }
         }
         self.pending_tempo = None;
-        if let Some(rec) = self.recording.take() {
-            self.state.tracks.get(rec.buf.track).map(|t| t.recording_slot.store(NONE, Relaxed));
+        if let Some(rec) = self.recording.take()
+            && let Some(t) = self.state.tracks.get(rec.buf.track)
+        {
+            t.recording_slot.store(NONE, Relaxed)
         }
     }
 
@@ -636,11 +640,11 @@ impl Core {
 
     fn apply_due_events(&mut self) {
         let now = self.beat + EPS;
-        if let Some((at, bpm)) = self.pending_tempo {
-            if at <= now {
-                self.tempo = bpm;
-                self.pending_tempo = None;
-            }
+        if let Some((at, bpm)) = self.pending_tempo
+            && at <= now
+        {
+            self.tempo = bpm;
+            self.pending_tempo = None;
         }
         let st = &self.state;
         for (i, t) in self.tracks.iter_mut().enumerate() {
@@ -672,10 +676,10 @@ impl Core {
         let mut rec = self.recording.take().expect("checked above");
         let len = rec.buf.length;
         for pitch in 0..128 {
-            if let Some((start, v)) = rec.buf.held[pitch].take() {
-                if rec.buf.notes.len() < rec.buf.notes.capacity() {
-                    rec.buf.notes.push(Note::new(pitch as u8, start, (len - start).max(1.0 / 64.0), v));
-                }
+            if let Some((start, v)) = rec.buf.held[pitch].take()
+                && rec.buf.notes.len() < rec.buf.notes.capacity()
+            {
+                rec.buf.notes.push(Note::new(pitch as u8, start, (len - start).max(1.0 / 64.0), v));
             }
         }
         rec.buf.notes.sort_unstable_by(|a, b| a.start.total_cmp(&b.start));
@@ -713,15 +717,16 @@ impl Core {
         // Phase B: insert effects (with sidechain keys from phase A).
         for i in 0..self.tracks.len() {
             for e in 0..self.tracks[i].chan.effects.len() {
-                if let Some(src) = self.tracks[i].chan.effects[e].fx.wants_sidechain() {
-                    if src < self.tracks.len() && self.tracks[src].is_key_source {
-                        let (kl, kr) = (self.tracks[src].key_l.as_ptr(), self.tracks[src].key_r.as_ptr());
-                        // SAFETY: key buffers are never resized after construction,
-                        // and `src` may equal `i` only through key_* (not chan.*),
-                        // so these slices never alias the effect being borrowed.
-                        let (kl, kr) = unsafe { (std::slice::from_raw_parts(kl, n), std::slice::from_raw_parts(kr, n)) };
-                        self.tracks[i].chan.effects[e].fx.sidechain(kl, kr);
-                    }
+                if let Some(src) = self.tracks[i].chan.effects[e].fx.wants_sidechain()
+                    && src < self.tracks.len()
+                    && self.tracks[src].is_key_source
+                {
+                    let (kl, kr) = (self.tracks[src].key_l.as_ptr(), self.tracks[src].key_r.as_ptr());
+                    // SAFETY: key buffers are never resized after construction,
+                    // and `src` may equal `i` only through key_* (not chan.*),
+                    // so these slices never alias the effect being borrowed.
+                    let (kl, kr) = unsafe { (std::slice::from_raw_parts(kl, n), std::slice::from_raw_parts(kr, n)) };
+                    self.tracks[i].chan.effects[e].fx.sidechain(kl, kr);
                 }
             }
             self.tracks[i].chan.run_effects(&ctx, n);
@@ -772,13 +777,13 @@ impl Core {
         // Advance the transport.
         if self.playing {
             self.beat = b1;
-            if let Some((ls, le)) = self.loop_region {
-                if self.beat >= le - EPS {
-                    self.beat = ls + (self.beat - le).max(0.0);
-                    for t in self.tracks.iter_mut().filter(|t| t.follows_arrangement && t.session.is_none()) {
-                        t.flush_notes = true;
-                        t.arr_active = None;
-                    }
+            if let Some((ls, le)) = self.loop_region
+                && self.beat >= le - EPS
+            {
+                self.beat = ls + (self.beat - le).max(0.0);
+                for t in self.tracks.iter_mut().filter(|t| t.follows_arrangement && t.session.is_none()) {
+                    t.flush_notes = true;
+                    t.arr_active = None;
                 }
             }
         }
@@ -971,10 +976,10 @@ fn render_audio(
         if beat < place.start {
             continue;
         }
-        if let Some(e) = place.end {
-            if beat >= e {
-                return true;
-            }
+        if let Some(e) = place.end
+            && beat >= e
+        {
+            return true;
         }
         let mut local = beat - place.start;
         if !clip.looping && local >= clip.length {
@@ -1008,19 +1013,19 @@ fn apply_automation(t: &mut Track, beat: Beats) {
                 }
             }
             AutomationTarget::Instrument { param } => {
-                if let Some(inst) = t.instrument.as_mut() {
-                    if let Some(info) = inst.params().get(param) {
-                        let value = info.denormalize(v);
-                        inst.set_param(param, value);
-                    }
+                if let Some(inst) = t.instrument.as_mut()
+                    && let Some(info) = inst.params().get(param)
+                {
+                    let value = info.denormalize(v);
+                    inst.set_param(param, value);
                 }
             }
             AutomationTarget::Effect { index, param } => {
-                if let Some(slot) = t.chan.effects.get_mut(index) {
-                    if let Some(info) = slot.fx.params().get(param) {
-                        let value = info.denormalize(v);
-                        slot.fx.set_param(param, value);
-                    }
+                if let Some(slot) = t.chan.effects.get_mut(index)
+                    && let Some(info) = slot.fx.params().get(param)
+                {
+                    let value = info.denormalize(v);
+                    slot.fx.set_param(param, value);
                 }
             }
         }
