@@ -261,10 +261,7 @@ mod tests {
         // 1 beat over 100 frames.
         let (ev, st) = run(&notes, 4.0, true, place, 0.0, 1.0, 100);
         assert_eq!(st, ClipStatus::Playing);
-        assert_eq!(ev, vec![
-            MidiEvent::on(50, 60, 100),
-            MidiEvent::off(75, 60),
-        ]);
+        assert_eq!(ev, vec![MidiEvent::on(50, 60, 100), MidiEvent::off(75, 60),]);
     }
 
     #[test]

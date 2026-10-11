@@ -128,10 +128,7 @@ mod tests {
 
     #[test]
     fn response_reflects_bands() {
-        let p = EqParams {
-            bands: vec![EqBand { kind: EqBandKind::Peak, freq_hz: 2_000.0, gain_db: -9.0, q: 1.0, enabled: true }],
-            output_db: 0.0,
-        };
+        let p = EqParams { bands: vec![EqBand { kind: EqBandKind::Peak, freq_hz: 2_000.0, gain_db: -9.0, q: 1.0, enabled: true }], output_db: 0.0 };
         let eq = ParametricEq::new(p, 48_000.0);
         assert!((eq.response_db(2_000.0) + 9.0).abs() < 0.2);
         assert!(eq.response_db(100.0).abs() < 0.5);

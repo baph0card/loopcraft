@@ -28,7 +28,16 @@ pub struct Delay {
 impl Delay {
     pub fn new(p: DelayParams, sample_rate: f32) -> Self {
         let max = (MAX_SECONDS * sample_rate) as usize + 4;
-        let mut d = Self { sr: sample_rate, l: DelayLine::new(max), r: DelayLine::new(max), time: Smoothed::new(0.0, sample_rate, 60.0), lp_l: 0.0, lp_r: 0.0, lp_coeff: 0.0, p };
+        let mut d = Self {
+            sr: sample_rate,
+            l: DelayLine::new(max),
+            r: DelayLine::new(max),
+            time: Smoothed::new(0.0, sample_rate, 60.0),
+            lp_l: 0.0,
+            lp_r: 0.0,
+            lp_coeff: 0.0,
+            p,
+        };
         d.update_filter();
         d
     }

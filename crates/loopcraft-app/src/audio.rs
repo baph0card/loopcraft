@@ -4,8 +4,8 @@
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use loopcraft_engine::Engine;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub struct DeviceInfo {
@@ -18,7 +18,9 @@ pub struct DeviceInfo {
 pub enum Output {
     #[allow(dead_code)] // held to keep the stream alive
     Device(cpal::Stream),
-    Null { stop: Arc<AtomicBool> },
+    Null {
+        stop: Arc<AtomicBool>,
+    },
 }
 
 impl Drop for Output {

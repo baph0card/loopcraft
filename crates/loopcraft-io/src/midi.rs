@@ -85,7 +85,8 @@ pub fn export_midi(notes: &[Note], tempo: f64, name: &str) -> Result<Vec<u8>> {
     for (t, on, key, vel) in abs {
         let delta = u28::new((t - last) as u32);
         last = t;
-        let message = if on { MidiMessage::NoteOn { key: u7::new(key), vel: u7::new(vel) } } else { MidiMessage::NoteOff { key: u7::new(key), vel: u7::new(0) } };
+        let message =
+            if on { MidiMessage::NoteOn { key: u7::new(key), vel: u7::new(vel) } } else { MidiMessage::NoteOff { key: u7::new(key), vel: u7::new(0) } };
         events.push(TrackEvent { delta, kind: TrackEventKind::Midi { channel: u4::new(0), message } });
     }
     events.push(TrackEvent { delta: u28::new(0), kind: TrackEventKind::Meta(MetaMessage::EndOfTrack) });

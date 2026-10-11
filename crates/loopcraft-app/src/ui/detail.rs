@@ -193,14 +193,26 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             let key = Rect::from_min_size(pos2(rect.left(), y), vec2(keys_w - 2.0, row_h - 0.5));
             p.rect_filled(key, 0.0, if black { Color32::from_gray(40) } else { Color32::from_gray(200) });
             if pitch % 12 == 0 && row_h >= 7.0 {
-                p.text(key.right_center() - vec2(2.0, 0.0), Align2::RIGHT_CENTER, format!("C{}", pitch / 12 - 2), FontId::proportional(row_h.min(10.0)), Color32::BLACK);
+                p.text(
+                    key.right_center() - vec2(2.0, 0.0),
+                    Align2::RIGHT_CENTER,
+                    format!("C{}", pitch / 12 - 2),
+                    FontId::proportional(row_h.min(10.0)),
+                    Color32::BLACK,
+                );
             }
         }
         let mut b = 0.0;
         while b <= len + 1e-9 {
             let strong = (b % 4.0).abs() < 1e-9;
             let beat = (b % 1.0).abs() < 1e-9;
-            let c = if strong { theme::DIM } else if beat { theme::LINE } else { theme::dim(theme::LINE, 0.55) };
+            let c = if strong {
+                theme::DIM
+            } else if beat {
+                theme::LINE
+            } else {
+                theme::dim(theme::LINE, 0.55)
+            };
             p.line_segment([pos2(x_of(b), grid_r.top()), pos2(x_of(b), grid_r.bottom())], Stroke::new(1.0, c));
             b += app.piano_grid;
         }
@@ -210,7 +222,10 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             if (n.pitch as i32) < lo || (n.pitch as i32) > hi {
                 continue;
             }
-            let r = Rect::from_min_max(pos2(x_of(n.start), y_of(n.pitch as i32) + 0.5), pos2(x_of((n.start + n.length).min(len)), y_of(n.pitch as i32) + row_h - 0.5));
+            let r = Rect::from_min_max(
+                pos2(x_of(n.start), y_of(n.pitch as i32) + 0.5),
+                pos2(x_of((n.start + n.length).min(len)), y_of(n.pitch as i32) + row_h - 0.5),
+            );
             let vel = 0.45 + 0.55 * n.velocity as f32 / 127.0;
             p.rect_filled(r, 2.0, theme::dim(color, vel));
             let sel = app.piano_selected == Some(i);
@@ -351,7 +366,13 @@ fn waveform(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             }
         }
     }
-    p.text(rect.left_bottom() + vec2(6.0, -6.0), Align2::LEFT_BOTTOM, format!("{:?} · {:.1} → {:.1} bpm", a.warp, a.original_bpm, app.engine.state.tempo.load()), FontId::proportional(11.0), theme::DIM);
+    p.text(
+        rect.left_bottom() + vec2(6.0, -6.0),
+        Align2::LEFT_BOTTOM,
+        format!("{:?} · {:.1} → {:.1} bpm", a.warp, a.original_bpm, app.engine.state.tempo.load()),
+        FontId::proportional(11.0),
+        theme::DIM,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +516,11 @@ fn extra_controls(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef
             }
         }
         DeviceSpec::DrumRack(d) => {
-            ui.label(RichText::new(format!("{} pads · notes {}", d.pads.len(), d.pads.iter().map(|p| p.note.to_string()).collect::<Vec<_>>().join(" "))).size(10.0).color(theme::DIM));
+            ui.label(
+                RichText::new(format!("{} pads · notes {}", d.pads.len(), d.pads.iter().map(|p| p.note.to_string()).collect::<Vec<_>>().join(" ")))
+                    .size(10.0)
+                    .color(theme::DIM),
+            );
         }
         _ => {}
     }

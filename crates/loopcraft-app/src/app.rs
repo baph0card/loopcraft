@@ -230,7 +230,13 @@ impl App {
 
     /// Send one session clip to the engine without rebuilding.
     pub fn push_clip(&mut self, track: usize, slot: usize) {
-        let clip = self.project.tracks.get(track).and_then(|t| t.slots.get(slot)).and_then(|c| c.as_ref()).map(|c| Box::new(RtClip::from_clip(c, self.loader.as_ref())));
+        let clip = self
+            .project
+            .tracks
+            .get(track)
+            .and_then(|t| t.slots.get(slot))
+            .and_then(|c| c.as_ref())
+            .map(|c| Box::new(RtClip::from_clip(c, self.loader.as_ref())));
         self.send(Command::ReplaceClip { track, slot, clip });
     }
 
@@ -257,7 +263,16 @@ impl App {
         }
     }
 
-    const PALETTE: [[u8; 3]; 8] = [[0xf0, 0x80, 0x50], [0x90, 0xe0, 0x70], [0x70, 0xa0, 0xf0], [0xe0, 0x60, 0xc0], [0xf0, 0xd0, 0x50], [0x60, 0xd0, 0xd0], [0xb0, 0x90, 0xf0], [0xf0, 0x70, 0x70]];
+    const PALETTE: [[u8; 3]; 8] = [
+        [0xf0, 0x80, 0x50],
+        [0x90, 0xe0, 0x70],
+        [0x70, 0xa0, 0xf0],
+        [0xe0, 0x60, 0xc0],
+        [0xf0, 0xd0, 0x50],
+        [0x60, 0xd0, 0xd0],
+        [0xb0, 0x90, 0xf0],
+        [0xf0, 0x70, 0x70],
+    ];
 
     pub fn add_midi_track(&mut self, instrument: DeviceSpec) -> usize {
         self.checkpoint();
@@ -287,7 +302,9 @@ impl App {
     pub fn add_return(&mut self) {
         self.checkpoint();
         let letter = (b'A' + self.project.returns.len() as u8) as char;
-        self.project.add_return(Track::new(format!("{letter} Return"), TrackKind::Return).with_effect(DeviceSpec::Reverb(ReverbParams { dry_wet: 1.0, ..Default::default() })));
+        self.project.add_return(
+            Track::new(format!("{letter} Return"), TrackKind::Return).with_effect(DeviceSpec::Reverb(ReverbParams { dry_wet: 1.0, ..Default::default() })),
+        );
         self.rebuild();
     }
 
@@ -597,9 +614,10 @@ impl App {
     }
 
     pub fn default_dir(&self) -> PathBuf {
-        self.path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join("LoopCraft")).unwrap_or_else(|| PathBuf::from("."))
-        })
+        self.path
+            .as_ref()
+            .and_then(|p| p.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join("LoopCraft")).unwrap_or_else(|| PathBuf::from(".")))
     }
 
     pub fn open_dialog(&mut self, kind: DialogKind) {
@@ -671,11 +689,15 @@ impl App {
     pub fn sample_files(&self) -> Vec<String> {
         let dir = self.default_dir();
         let mut v: Vec<String> = std::fs::read_dir(&dir)
-            .map(|rd| rd.flatten().filter_map(|e| {
-                let p = e.path();
-                let ext = p.extension()?.to_string_lossy().to_lowercase();
-                (ext == "wav").then(|| p.file_name().unwrap().to_string_lossy().into_owned())
-            }).collect())
+            .map(|rd| {
+                rd.flatten()
+                    .filter_map(|e| {
+                        let p = e.path();
+                        let ext = p.extension()?.to_string_lossy().to_lowercase();
+                        (ext == "wav").then(|| p.file_name().unwrap().to_string_lossy().into_owned())
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
         v.sort();
         v

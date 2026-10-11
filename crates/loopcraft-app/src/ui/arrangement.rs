@@ -23,7 +23,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if ui.button("+").clicked() {
             app.arr_pixels_per_beat = (app.arr_pixels_per_beat * 1.4).min(120.0);
         }
-        ui.label(RichText::new("Click the ruler to move the playhead · right-click it for the loop · double-click a MIDI lane to add a clip · drag clips to move them").color(theme::DIM).size(11.0));
+        ui.label(
+            RichText::new(
+                "Click the ruler to move the playhead · right-click it for the loop · double-click a MIDI lane to add a clip · drag clips to move them",
+            )
+            .color(theme::DIM)
+            .size(11.0),
+        );
     });
 
     let ppb = app.arr_pixels_per_beat;
@@ -39,12 +45,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         p.rect_filled(area, 0.0, theme::BG);
 
         // Lanes and grid.
-        let step_bars = if ppb * bar as f32 > 40.0 { 1.0 } else if ppb * bar as f32 > 12.0 { 4.0 } else { 8.0 };
+        let step_bars = if ppb * bar as f32 > 40.0 {
+            1.0
+        } else if ppb * bar as f32 > 12.0 {
+            4.0
+        } else {
+            8.0
+        };
         let mut b = 0.0;
         while b < len {
             let x = x_of(b);
             let strong = ((b / bar) % (step_bars * 4.0)).abs() < 1e-6;
-            p.line_segment([pos2(x, area.top() + RULER_H), pos2(x, area.bottom())], Stroke::new(1.0, if strong { theme::LINE } else { theme::dim(theme::LINE, 0.6) }));
+            p.line_segment(
+                [pos2(x, area.top() + RULER_H), pos2(x, area.bottom())],
+                Stroke::new(1.0, if strong { theme::LINE } else { theme::dim(theme::LINE, 0.6) }),
+            );
             b += bar * step_bars;
         }
 
@@ -197,7 +212,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         // Playhead.
         let x = x_of(st.beat.load());
         p.line_segment([pos2(x, area.top()), pos2(x, area.bottom())], Stroke::new(1.5, theme::ACCENT));
-        p.add(egui::Shape::convex_polygon(vec![Pos2::new(x - 5.0, area.top()), Pos2::new(x + 5.0, area.top()), Pos2::new(x, area.top() + 7.0)], theme::ACCENT, Stroke::NONE));
+        p.add(egui::Shape::convex_polygon(
+            vec![Pos2::new(x - 5.0, area.top()), Pos2::new(x + 5.0, area.top()), Pos2::new(x, area.top() + 7.0)],
+            theme::ACCENT,
+            Stroke::NONE,
+        ));
     });
 }
 

@@ -208,12 +208,8 @@ impl Core {
     pub fn from_project(project: &Project, sample_rate: f32, loader: &dyn SampleLoader, plugins: &dyn PluginFactory) -> Self {
         let p = project.clone().normalized();
         let n_ret = p.returns.len();
-        let key_sources: Vec<usize> = p
-            .tracks
-            .iter()
-            .flat_map(|t| t.effects.iter())
-            .filter_map(|e| if let DeviceSpec::Compressor(c) = e { c.sidechain_track } else { None })
-            .collect();
+        let key_sources: Vec<usize> =
+            p.tracks.iter().flat_map(|t| t.effects.iter()).filter_map(|e| if let DeviceSpec::Compressor(c) = e { c.sidechain_track } else { None }).collect();
 
         let tracks = p
             .tracks
@@ -797,7 +793,13 @@ impl Core {
         for i in 0..n {
             if Some(i) == next_click {
                 let accent = (k / bar).fract().abs() < 1e-6;
-                self.click = Click { t: 0, len: (0.03 * self.sr) as usize, freq: if accent { 1_600.0 } else { 1_000.0 }, phase: 0.0, amp: if accent { 0.5 } else { 0.3 } };
+                self.click = Click {
+                    t: 0,
+                    len: (0.03 * self.sr) as usize,
+                    freq: if accent { 1_600.0 } else { 1_000.0 },
+                    phase: 0.0,
+                    amp: if accent { 0.5 } else { 0.3 },
+                };
                 k += 1.0;
                 next_click = if (k - b0) / bpf < n as f64 { Some(((k - b0) / bpf) as usize) } else { None };
             }
@@ -947,7 +949,18 @@ fn clip_local(beat: Beats, start: Beats, len: Beats, looping: bool) -> f64 {
 
 /// Returns true when a one-shot or region ended inside this chunk.
 #[allow(clippy::too_many_arguments)]
-fn render_audio(a: &crate::clip::RtAudio, clip: &RtClip, place: Placement, b0: Beats, b1: Beats, n: usize, tempo: f64, st: &mut GrainStretcher, l: &mut [f32], r: &mut [f32]) -> bool {
+fn render_audio(
+    a: &crate::clip::RtAudio,
+    clip: &RtClip,
+    place: Placement,
+    b0: Beats,
+    b1: Beats,
+    n: usize,
+    tempo: f64,
+    st: &mut GrainStretcher,
+    l: &mut [f32],
+    r: &mut [f32],
+) -> bool {
     let Some(buf) = a.buf.as_deref() else { return false };
     let bpf = (b1 - b0) / n.max(1) as f64;
     let sr = buf.sample_rate as f64;

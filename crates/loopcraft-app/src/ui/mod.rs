@@ -238,7 +238,13 @@ pub fn meter(ui: &mut egui::Ui, l: f32, r: f32, height: f32) {
         let x0 = rect.left() + i as f32 * 5.0;
         let h = to_h(v);
         let bar = egui::Rect::from_min_max(egui::pos2(x0, rect.bottom() - h), egui::pos2(x0 + 4.0, rect.bottom()));
-        let color = if v >= 1.0 { theme::REC } else if v > 0.5 { theme::ACCENT } else { theme::PLAY };
+        let color = if v >= 1.0 {
+            theme::REC
+        } else if v > 0.5 {
+            theme::ACCENT
+        } else {
+            theme::PLAY
+        };
         p.rect_filled(bar, 0.0, color);
     }
 }
@@ -254,7 +260,13 @@ pub enum Icon {
 pub fn icon_button(ui: &mut egui::Ui, icon: Icon, active: bool, active_color: Color32, size: egui::Vec2) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let p = ui.painter();
-    let bg = if active { active_color } else if resp.hovered() { theme::SLOT_HOVER } else { theme::SLOT };
+    let bg = if active {
+        active_color
+    } else if resp.hovered() {
+        theme::SLOT_HOVER
+    } else {
+        theme::SLOT
+    };
     p.rect_filled(rect, 3.0, bg);
     let fg = if active { Color32::BLACK } else { theme::TEXT };
     let c = rect.center();

@@ -54,10 +54,7 @@ impl std::fmt::Display for ProjectError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ProjectError::Json(e) => write!(f, "invalid project file: {e}"),
-            ProjectError::Version { found, supported } => write!(
-                f,
-                "project format version {found} is newer than this build supports ({supported})"
-            ),
+            ProjectError::Version { found, supported } => write!(f, "project format version {found} is newer than this build supports ({supported})"),
         }
     }
 }
@@ -118,11 +115,7 @@ impl Project {
 
     /// End of the last arrangement clip, in beats.
     pub fn arrangement_length(&self) -> Beats {
-        self.tracks
-            .iter()
-            .flat_map(|t| t.arrangement.iter())
-            .map(|c| c.end())
-            .fold(0.0, f64::max)
+        self.tracks.iter().flat_map(|t| t.arrangement.iter()).map(|c| c.end()).fold(0.0, f64::max)
     }
 }
 
@@ -435,8 +428,7 @@ impl DeviceSpec {
     }
 
     pub fn is_instrument(&self) -> bool {
-        matches!(self, DeviceSpec::PolySynth(_) | DeviceSpec::Sampler(_) | DeviceSpec::DrumRack(_))
-            || matches!(self, DeviceSpec::Plugin(p) if p.is_instrument)
+        matches!(self, DeviceSpec::PolySynth(_) | DeviceSpec::Sampler(_) | DeviceSpec::DrumRack(_)) || matches!(self, DeviceSpec::Plugin(p) if p.is_instrument)
     }
 }
 
@@ -530,13 +522,7 @@ pub struct SamplerParams {
 
 impl Default for SamplerParams {
     fn default() -> Self {
-        Self {
-            file: String::new(),
-            root_key: 60,
-            amp_env: Adsr { attack: 0.001, decay: 0.1, sustain: 1.0, release: 0.1 },
-            gain_db: 0.0,
-            loop_sample: false,
-        }
+        Self { file: String::new(), root_key: 60, amp_env: Adsr { attack: 0.001, decay: 0.1, sustain: 1.0, release: 0.1 }, gain_db: 0.0, loop_sample: false }
     }
 }
 

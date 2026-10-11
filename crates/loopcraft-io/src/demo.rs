@@ -69,8 +69,18 @@ fn bass_clip(name: &str, busy: bool) -> Clip {
 
 fn lead_clip() -> Clip {
     // A minor pentatonic phrase.
-    let phrase: [(u8, f64, f64); 10] =
-        [(76, 0.0, 0.75), (79, 0.75, 0.75), (81, 1.5, 1.0), (79, 2.5, 0.5), (76, 3.0, 1.0), (74, 4.5, 0.5), (72, 5.0, 0.5), (74, 5.5, 0.5), (76, 6.0, 1.5), (69, 7.5, 0.5)];
+    let phrase: [(u8, f64, f64); 10] = [
+        (76, 0.0, 0.75),
+        (79, 0.75, 0.75),
+        (81, 1.5, 1.0),
+        (79, 2.5, 0.5),
+        (76, 3.0, 1.0),
+        (74, 4.5, 0.5),
+        (72, 5.0, 0.5),
+        (74, 5.5, 0.5),
+        (76, 6.0, 1.5),
+        (69, 7.5, 0.5),
+    ];
     let notes = phrase.iter().map(|&(p, s, l)| Note::new(p, s, l, 95)).collect();
     Clip { color: [0xe0, 0x60, 0xc0], ..Clip::midi("Hook", 8.0, notes) }
 }
@@ -80,10 +90,14 @@ pub fn render_break(dir: &Path, sample_rate: u32) -> Result<()> {
     let mut p = Project { tempo: 100.0, ..Default::default() };
     p.add_scene("1");
     let rack = DrumRackParams {
-        pads: DrumRackParams::default().pads.into_iter().map(|mut pad| {
-            pad.tune_semitones = 2.0;
-            pad
-        }).collect(),
+        pads: DrumRackParams::default()
+            .pads
+            .into_iter()
+            .map(|mut pad| {
+                pad.tune_semitones = 2.0;
+                pad
+            })
+            .collect(),
         ..Default::default()
     };
     let t = p.add_track(Track::midi("Break", DeviceSpec::DrumRack(rack)));
@@ -111,7 +125,12 @@ pub fn demo_project() -> Project {
 
     // Returns first so every track gets a send for each.
     p.add_return(Track::new("A Reverb", TrackKind::Return).with_effect(DeviceSpec::Reverb(ReverbParams { size: 0.82, dry_wet: 1.0, ..Default::default() })));
-    p.add_return(Track::new("B Delay", TrackKind::Return).with_effect(DeviceSpec::Delay(DelayParams { dry_wet: 1.0, feedback: 0.45, time_beats: 0.75, ..Default::default() })));
+    p.add_return(Track::new("B Delay", TrackKind::Return).with_effect(DeviceSpec::Delay(DelayParams {
+        dry_wet: 1.0,
+        feedback: 0.45,
+        time_beats: 0.75,
+        ..Default::default()
+    })));
 
     for name in ["Intro", "Groove", "Peak", "Breakdown"] {
         p.add_scene(name);
@@ -120,9 +139,7 @@ pub fn demo_project() -> Project {
 
     // 0: Drums
     let drums = p.add_track(
-        Track::midi("Drums", DeviceSpec::DrumRack(DrumRackParams::default()))
-            .with_color([0xf0, 0x80, 0x50])
-            .with_effect(DeviceSpec::Eq(EqParams::default())),
+        Track::midi("Drums", DeviceSpec::DrumRack(DrumRackParams::default())).with_color([0xf0, 0x80, 0x50]).with_effect(DeviceSpec::Eq(EqParams::default())),
     );
     p.tracks[drums].slots[0] = Some(drum_clip("Beat", false, 4.0));
     p.tracks[drums].slots[1] = Some(drum_clip("Beat", false, 4.0));
@@ -220,10 +237,7 @@ pub fn demo_project() -> Project {
 
     // Master chain: tidy low end, gentle glue compression, safety trim.
     p.master.effects = vec![
-        DeviceSpec::Eq(EqParams {
-            bands: vec![EqBand { kind: EqBandKind::LowCut, freq_hz: 25.0, gain_db: 0.0, q: 0.71, enabled: true }],
-            output_db: 0.0,
-        }),
+        DeviceSpec::Eq(EqParams { bands: vec![EqBand { kind: EqBandKind::LowCut, freq_hz: 25.0, gain_db: 0.0, q: 0.71, enabled: true }], output_db: 0.0 }),
         DeviceSpec::Compressor(CompressorParams { threshold_db: -10.0, ratio: 2.0, attack_ms: 20.0, release_ms: 200.0, makeup_db: 1.0, ..Default::default() }),
         DeviceSpec::Saturator(SaturatorParams { drive_db: 0.0, output_db: -1.0, dry_wet: 1.0 }),
     ];

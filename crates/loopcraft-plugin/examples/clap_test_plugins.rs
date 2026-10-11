@@ -165,7 +165,8 @@ unsafe extern "C" fn create(_: *const clap_plugin_factory, _: *const clap_host, 
     }
 }
 
-static FACTORY: clap_plugin_factory = clap_plugin_factory { get_plugin_count: Some(count), get_plugin_descriptor: Some(descriptor), create_plugin: Some(create) };
+static FACTORY: clap_plugin_factory =
+    clap_plugin_factory { get_plugin_count: Some(count), get_plugin_descriptor: Some(descriptor), create_plugin: Some(create) };
 
 unsafe extern "C" fn entry_init(_: *const c_char) -> bool {
     true
@@ -177,4 +178,5 @@ unsafe extern "C" fn get_factory(id: *const c_char) -> *const c_void {
 
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
-pub static clap_entry: clap_plugin_entry = clap_plugin_entry { clap_version: CLAP_VERSION, init: Some(entry_init), deinit: Some(entry_deinit), get_factory: Some(get_factory) };
+pub static clap_entry: clap_plugin_entry =
+    clap_plugin_entry { clap_version: CLAP_VERSION, init: Some(entry_init), deinit: Some(entry_deinit), get_factory: Some(get_factory) };

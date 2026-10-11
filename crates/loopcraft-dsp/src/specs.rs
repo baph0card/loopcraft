@@ -28,9 +28,17 @@ pub fn param_infos(spec: &DeviceSpec) -> &'static [ParamInfo] {
 /// Current value of parameter `i` (natural units).
 pub fn get_param(spec: &DeviceSpec, i: usize) -> f32 {
     match spec {
-        DeviceSpec::PolySynth(p) => [p.cutoff_hz, p.resonance, p.filter_env_amount, p.osc_mix, p.gain_db, p.amp_env.attack, p.amp_env.release].get(i).copied().unwrap_or(0.0),
+        DeviceSpec::PolySynth(p) => {
+            [p.cutoff_hz, p.resonance, p.filter_env_amount, p.osc_mix, p.gain_db, p.amp_env.attack, p.amp_env.release].get(i).copied().unwrap_or(0.0)
+        }
         DeviceSpec::Sampler(p) => [p.gain_db, p.amp_env.attack, p.amp_env.release].get(i).copied().unwrap_or(0.0),
-        DeviceSpec::DrumRack(p) => if i == 0 { p.gain_db } else { 0.0 },
+        DeviceSpec::DrumRack(p) => {
+            if i == 0 {
+                p.gain_db
+            } else {
+                0.0
+            }
+        }
         DeviceSpec::Eq(p) => {
             if i == 24 {
                 return p.output_db;

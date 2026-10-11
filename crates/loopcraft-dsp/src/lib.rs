@@ -126,9 +126,7 @@ impl AudioBuffer {
         }
         let ratio = self.sample_rate as f64 / target_sr as f64;
         let out_len = (self.len() as f64 / ratio).floor() as usize;
-        let channels = (0..self.channels.len())
-            .map(|ch| (0..out_len).map(|i| self.read(ch, i as f64 * ratio)).collect())
-            .collect();
+        let channels = (0..self.channels.len()).map(|ch| (0..out_len).map(|i| self.read(ch, i as f64 * ratio)).collect()).collect();
         Self { sample_rate: target_sr, channels }
     }
 }

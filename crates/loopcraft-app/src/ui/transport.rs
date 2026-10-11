@@ -91,7 +91,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ui.label(RichText::new(pos).monospace().size(15.0).color(theme::TEXT));
 
         let off_arrangement = st.tracks.iter().any(|t| !t.follows_arrangement.load(Relaxed));
-        if ui.add_enabled(off_arrangement, egui::Button::new(RichText::new("Back to Arr.").color(if off_arrangement { theme::ACCENT } else { theme::DIM }))).on_hover_text("Return all tracks to the Arrangement").clicked() {
+        if ui
+            .add_enabled(off_arrangement, egui::Button::new(RichText::new("Back to Arr.").color(if off_arrangement { theme::ACCENT } else { theme::DIM })))
+            .on_hover_text("Return all tracks to the Arrangement")
+            .clicked()
+        {
             app.send(Command::BackToArrangement);
         }
         ui.separator();

@@ -79,7 +79,8 @@ fn run(args: Vec<String>) -> Result<()> {
             let track: usize = rest.get(1).ok_or_else(|| anyhow!("missing <track>"))?.parse()?;
             let slot: usize = rest.get(2).ok_or_else(|| anyhow!("missing <slot>"))?.parse()?;
             let out = rest.get(3).ok_or_else(|| anyhow!("missing <out.mid>"))?;
-            let clip = p.tracks.get(track).and_then(|t| t.slots.get(slot)).and_then(|c| c.as_ref()).ok_or_else(|| anyhow!("no clip at track {track}, slot {slot}"))?;
+            let clip =
+                p.tracks.get(track).and_then(|t| t.slots.get(slot)).and_then(|c| c.as_ref()).ok_or_else(|| anyhow!("no clip at track {track}, slot {slot}"))?;
             let ClipContent::Midi { notes } = &clip.content else { bail!("that clip is audio, not MIDI") };
             std::fs::write(out, midi::export_midi(notes, p.tempo, &clip.name)?)?;
             println!("wrote {} notes to {out}", notes.len());
@@ -169,7 +170,14 @@ fn cmd_render(args: &[String]) -> Result<()> {
 }
 
 fn cmd_info(p: &Project) -> Result<()> {
-    println!("{}  —  {:.1} bpm, {}/{}, launch quantization {}", p.name, p.tempo, p.time_signature.numerator, p.time_signature.denominator, p.quantization.label());
+    println!(
+        "{}  —  {:.1} bpm, {}/{}, launch quantization {}",
+        p.name,
+        p.tempo,
+        p.time_signature.numerator,
+        p.time_signature.denominator,
+        p.quantization.label()
+    );
     println!("\nScenes:");
     for (i, s) in p.scenes.iter().enumerate() {
         println!("  {i}: {}{}", s.name, s.tempo.map(|t| format!("  ({t} bpm)")).unwrap_or_default());

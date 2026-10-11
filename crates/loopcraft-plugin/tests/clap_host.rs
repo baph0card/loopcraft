@@ -67,8 +67,16 @@ fn engine_hosts_plugins_from_a_project() {
     let path = plugin_lib().to_string_lossy().into_owned();
     let mut p = Project::default();
     p.add_scene("1");
-    let synth = PluginRef { format: PluginFormat::Clap, path: path.clone(), id: "dev.loopcraft.test-sine".into(), name: "Test Sine".into(), is_instrument: true, state: None };
-    let gain = PluginRef { format: PluginFormat::Clap, path, id: "dev.loopcraft.test-gain".into(), name: "Test Gain".into(), is_instrument: false, state: None };
+    let synth = PluginRef {
+        format: PluginFormat::Clap,
+        path: path.clone(),
+        id: "dev.loopcraft.test-sine".into(),
+        name: "Test Sine".into(),
+        is_instrument: true,
+        state: None,
+    };
+    let gain =
+        PluginRef { format: PluginFormat::Clap, path, id: "dev.loopcraft.test-gain".into(), name: "Test Gain".into(), is_instrument: false, state: None };
     let t = p.add_track(Track::midi("Plugin", DeviceSpec::Plugin(synth)).with_effect(DeviceSpec::Plugin(gain)));
     p.tracks[t].slots[0] = Some(Clip::midi("a", 4.0, vec![Note::new(69, 0.0, 4.0, 127)]));
 

@@ -28,7 +28,8 @@ pub struct Compressor {
 
 impl Compressor {
     pub fn new(p: CompressorParams, sample_rate: f32) -> Self {
-        let mut c = Self { sr: sample_rate, env_db: 0.0, attack: 0.0, release: 0.0, makeup: 0.0, key: vec![0.0; MAX_BLOCK], key_len: 0, gain_reduction_db: 0.0, p };
+        let mut c =
+            Self { sr: sample_rate, env_db: 0.0, attack: 0.0, release: 0.0, makeup: 0.0, key: vec![0.0; MAX_BLOCK], key_len: 0, gain_reduction_db: 0.0, p };
         c.update();
         c
     }
@@ -126,7 +127,10 @@ mod tests {
 
     #[test]
     fn sidechain_ducks_signal() {
-        let mut c = Compressor::new(CompressorParams { threshold_db: -30.0, ratio: 20.0, attack_ms: 0.1, knee_db: 0.0, sidechain_track: Some(0), ..Default::default() }, 48_000.0);
+        let mut c = Compressor::new(
+            CompressorParams { threshold_db: -30.0, ratio: 20.0, attack_ms: 0.1, knee_db: 0.0, sidechain_track: Some(0), ..Default::default() },
+            48_000.0,
+        );
         let ctx = ProcessContext::new(48_000.0, 120.0);
         let key = vec![1.0; 512];
         let mut l = vec![0.1; 512];

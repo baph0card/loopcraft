@@ -49,7 +49,18 @@ impl DrumSynth {
             }
             _ => {}
         }
-        Self { kind, t: 0.0, phase: 0.0, phase2: 0.0, noise: Noise::with_seed(seed), bp, hp, active: false, choke_gain: 1.0, tune: 2f32.powf(tune_semitones / 12.0) }
+        Self {
+            kind,
+            t: 0.0,
+            phase: 0.0,
+            phase2: 0.0,
+            noise: Noise::with_seed(seed),
+            bp,
+            hp,
+            active: false,
+            choke_gain: 1.0,
+            tune: 2f32.powf(tune_semitones / 12.0),
+        }
     }
 
     fn trigger(&mut self) {
@@ -153,15 +164,19 @@ impl DrumRack {
                 let g = db_to_gain(pad.gain_db);
                 let voice = match &pad.source {
                     PadSource::Synth(kind) => PadVoice::Synth(DrumSynth::new(*kind, sample_rate, pad.tune_semitones, 0x9e37_79b9 ^ (i as u32 * 7919))),
-                    PadSource::Sample(path) => PadVoice::Sample {
-                        buf: loader.load(path),
-                        pos: 0.0,
-                        rate: 2f64.powf(pad.tune_semitones as f64 / 12.0),
-                        active: false,
-                        choke_gain: 1.0,
-                    },
+                    PadSource::Sample(path) => {
+                        PadVoice::Sample { buf: loader.load(path), pos: 0.0, rate: 2f64.powf(pad.tune_semitones as f64 / 12.0), active: false, choke_gain: 1.0 }
+                    }
                 };
-                Pad { note: pad.note, voice, gain_l: pl * g * std::f32::consts::SQRT_2, gain_r: pr * g * std::f32::consts::SQRT_2, velocity: 0.0, choke_group: pad.choke_group, choking: false }
+                Pad {
+                    note: pad.note,
+                    voice,
+                    gain_l: pl * g * std::f32::consts::SQRT_2,
+                    gain_r: pr * g * std::f32::consts::SQRT_2,
+                    velocity: 0.0,
+                    choke_group: pad.choke_group,
+                    choking: false,
+                }
             })
             .collect();
         Self { pads, sr: sample_rate, gain: db_to_gain(p.gain_db) }
