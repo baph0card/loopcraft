@@ -154,6 +154,9 @@ impl Stretchers {
     }
 }
 
+/// Live notes kept for Capture MIDI, per track.
+pub(crate) const CAPTURE: usize = 2048;
+
 pub(crate) struct Track {
     pub kind: TrackKind,
     /// Group track this track belongs to (for launching and solo).
@@ -190,6 +193,10 @@ pub(crate) struct Track {
     pub ev_b: EventList,
     pub live: [(bool, u8, u8); 64],
     pub live_len: usize,
+    /// Capture MIDI ring: (beat, on, note, velocity) of recent live notes.
+    pub capture: Box<[(f64, bool, u8, u8); CAPTURE]>,
+    pub capture_pos: usize,
+    pub capture_len: usize,
     pub active_notes: [bool; 128],
     pub rng: Noise,
     pub stretch: Stretchers,

@@ -63,7 +63,13 @@ impl App {
         let (p0, p1) = (p0.min(p1), p0.max(p1));
         let hit: BTreeSet<usize> = self
             .notes(r)
-            .map(|ns| ns.iter().enumerate().filter(|(_, n)| (n.pitch as i32) >= p0 && (n.pitch as i32) <= p1 && n.start < b1 && n.start + n.length > b0).map(|(i, _)| i).collect())
+            .map(|ns| {
+                ns.iter()
+                    .enumerate()
+                    .filter(|(_, n)| (n.pitch as i32) >= p0 && (n.pitch as i32) <= p1 && n.start < b1 && n.start + n.length > b0)
+                    .map(|(i, _)| i)
+                    .collect()
+            })
             .unwrap_or_default();
         if additive {
             self.piano_sel.extend(hit);

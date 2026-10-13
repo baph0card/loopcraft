@@ -201,3 +201,81 @@ fn save_and_reopen_round_trip() {
     assert_eq!(b.project.tracks[0].arrangement[0].offset, 1.0);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn loop_passes_split_correctly() {
+    use super::record::pass_spans;
+    assert_eq!(pass_spans(2.0, 3.0, None), vec![(2.0, 0.0, 3.0)]);
+    // Brace 0..4, started at 1, ran 10 beats: 1..4, then 0..4, then 0..3.
+    assert_eq!(pass_spans(1.0, 10.0, Some((0.0, 4.0))), vec![(1.0, 0.0, 3.0), (0.0, 3.0, 4.0), (0.0, 7.0, 3.0)]);
+    // Started outside the brace: no wrapping happened.
+    assert_eq!(pass_spans(6.0, 10.0, Some((0.0, 4.0))), vec![(6.0, 0.0, 10.0)]);
+}
+
+#[test]
+fn loop_recording_makes_takes_and_comping_swaps_them_in() {
+    let mut app = app_with_midi_track();
+    app.project.loop_region = Some((0.0, 4.0));
+    // Three passes over 0..4, a different pitch each pass, at beat 1 of the loop.
+    let mut buf = RecordBuffer::with(0, RecTarget::Arrangement, None);
+    buf.start = 0.0;
+    buf.recorded_length = 12.0;
+    for (k, pitch) in [60u8, 62, 64].into_iter().enumerate() {
+        buf.notes.push(Note::new(pitch, k as f64 * 4.0 + 1.0, 0.5, 100));
+    }
+    app.finish_midi(buf);
+    let tr = &app.project.tracks[0];
+    assert_eq!(tr.takes.len(), 3);
+    assert!(tr.show_takes);
+    // The timeline plays the latest pass.
+    assert_eq!(tr.arrangement.len(), 1);
+    let ClipContent::Midi { notes } = &tr.arrangement[0].clip.content else { panic!() };
+    assert_eq!(notes.iter().map(|n| (n.pitch, n.start)).collect::<Vec<_>>(), vec![(64, 1.0)]);
+    // Comp the first half from take 1.
+    app.comp_from_take(0, 0, 0.0, 2.0);
+    let arr = &app.project.tracks[0].arrangement;
+    assert_eq!(arr.iter().map(|r| (r.start, r.end())).collect::<Vec<_>>(), vec![(0.0, 2.0), (2.0, 4.0)]);
+    let ClipContent::Midi { notes } = &arr[0].clip.content else { panic!() };
+    assert_eq!(notes[0].pitch, 60);
+    app.undo();
+    assert_eq!(app.project.tracks[0].arrangement.len(), 1);
+}
+
+#[test]
+fn session_launches_record_into_the_arrangement() {
+    let mut app = app_with_midi_track();
+    app.project.tracks[0].slots[0] = Some(Clip::midi("a", 4.0, vec![Note::new(60, 0.0, 1.0, 100)]));
+    app.project.tracks[0].slots[1] = Some(Clip { looping: false, ..Clip::midi("b", 2.0, vec![Note::new(62, 0.0, 1.0, 100)]) });
+    app.arrangement_recording = true;
+    app.session_changed(0, Some(0), 0.0, 0.0);
+    // Slot 1 launched at beat 6 (slot 0 was 2 beats into its second loop).
+    app.session_changed(0, Some(1), 6.0, 6.0);
+    app.session_changed(0, None, 12.0, 12.0);
+    let arr = &app.project.tracks[0].arrangement;
+    assert_eq!(
+        arr.iter().map(|r| (r.start, r.end(), r.offset)).collect::<Vec<_>>(),
+        vec![(0.0, 6.0, 0.0), (6.0, 8.0, 0.0)],
+        "the one-shot stops at its own end"
+    );
+    // Launching mid-clip records the right offset.
+    app.session_changed(0, Some(0), 10.0, 13.0);
+    app.close_session_regions(16.0);
+    let r = app.project.tracks[0].arrangement.last().unwrap();
+    assert_eq!((r.start, r.offset, r.end()), (13.0, 3.0, 16.0));
+}
+
+#[test]
+fn capture_takes_the_last_phrase() {
+    let mut app = app_with_midi_track();
+    let mut buf = RecordBuffer::with(0, RecTarget::Capture, None);
+    // An old phrase, a long gap, then three notes starting at beat 41.
+    buf.notes.push(Note::new(50, 2.0, 0.5, 100));
+    for k in 0..3 {
+        buf.notes.push(Note::new(60 + k, 41.0 + k as f64, 0.5, 100));
+    }
+    app.finish_midi(buf);
+    let c = app.project.tracks[0].slots[0].as_ref().expect("captured into the first free slot");
+    assert_eq!(c.length, 4.0, "one bar, from the bar line before the first note");
+    let ClipContent::Midi { notes } = &c.content else { panic!() };
+    assert_eq!(notes.iter().map(|n| n.start).collect::<Vec<_>>(), vec![1.0, 2.0, 3.0]);
+}

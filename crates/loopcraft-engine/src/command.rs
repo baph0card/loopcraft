@@ -26,6 +26,10 @@ pub enum DeviceRef {
 pub enum RecTarget {
     Slot(usize),
     Arrangement,
+    /// Capture MIDI: notes played recently, recovered after the fact. Note
+    /// times are absolute (transport beats, or the free-running clock
+    /// while stopped) and `start` is 0.
+    Capture,
 }
 
 /// When a recording starts.
@@ -186,6 +190,9 @@ pub enum Command {
     RecordMidi(Box<RecordBuffer>, RecStart),
     /// Record a track's input, starting at `start`.
     RecordAudio(Box<AudioRecord>, RecStart),
+    /// Fill the buffer with the notes recently played into its track and
+    /// send it back as `Recorded` (target `Capture`).
+    CaptureMidi(Box<RecordBuffer>),
     /// Finish open-ended recordings on a track at the next quantize point
     /// (`None` = all tracks, immediately).
     StopRecording {
@@ -209,6 +216,10 @@ pub enum EngineEvent {
     Recorded(Box<RecordBuffer>),
     /// Finished audio recording; its samples were streamed through `tx`.
     AudioRecorded(Box<AudioRecord>),
+    /// A track's playing Session clip changed at song beat `at`: `slot`
+    /// started (with clip position 0 at song beat `origin`) or, if `None`,
+    /// the track stopped playing Session clips. Sent while playing only.
+    SessionChanged { track: usize, slot: Option<usize>, origin: Beats, at: Beats },
     /// Something the audio thread replaced; drop it here, off the audio thread.
     Garbage(Garbage),
 }

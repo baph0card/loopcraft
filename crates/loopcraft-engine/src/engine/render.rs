@@ -92,7 +92,7 @@ impl Core {
     fn write_audio_recordings(&mut self, n: usize) {
         let now = self.beat;
         for rec in self.recordings.iter_mut() {
-            if now + EPS < rec.start {
+            if !rec.started(now) {
                 continue;
             }
             let RecKind::Audio(a) = &mut rec.kind else { continue };
@@ -119,6 +119,27 @@ impl Core {
             }
             a.frames += k as u64;
             a.dropped += (n - k) as u64;
+        }
+    }
+
+    /// Tell the UI when tracks start or stop playing Session clips (used to
+    /// record Session performances into the Arrangement).
+    fn emit_session_changes(&mut self, b0: Beats) {
+        for i in 0..self.tracks.len() {
+            let now = self.tracks[i].session.map(|s| (s.slot, s.start));
+            let before = self.prev_session.get(i).copied().flatten();
+            if now != before {
+                if let Some(p) = self.prev_session.get_mut(i) {
+                    *p = now;
+                }
+                if self.playing || now.is_none() {
+                    let (slot, origin) = match now {
+                        Some((s, o)) => (Some(s), o),
+                        None => (None, b0),
+                    };
+                    self.post(EngineEvent::SessionChanged { track: i, slot, origin, at: b0.max(origin) });
+                }
+            }
         }
     }
 
@@ -384,12 +405,19 @@ impl Core {
                 && self.beat >= le - EPS
             {
                 self.beat = ls + (self.beat - le).max(0.0);
+                // Takes keep counting across the wrap (loop recording).
+                for r in self.recordings.iter_mut() {
+                    if r.offset > 0.0 || b1 + EPS >= r.start {
+                        r.offset += le - ls;
+                    }
+                }
                 for t in self.tracks.iter_mut().filter(|t| t.follows_arrangement && t.session.is_none()) {
                     t.flush_notes = true;
                     t.arr_active = None;
                 }
             }
         }
+        self.emit_session_changes(b0);
         self.publish();
     }
 

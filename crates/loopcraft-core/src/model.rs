@@ -341,6 +341,11 @@ pub struct Track {
     /// MIDI effects (by index in `midi_effects`) that are switched off.
     pub midi_bypassed: Vec<usize>,
     pub output: OutputRoute,
+    /// Arrangement take lanes from loop recording, for comping. Each lane
+    /// holds one pass; the main timeline (`arrangement`) is the comp.
+    pub takes: Vec<TakeLane>,
+    /// UI: take lanes shown.
+    pub show_takes: bool,
     /// Return tracks only: sends into this return are taken before the
     /// sending track's fader and pan (still silenced by mute and solo).
     pub pre_fader: bool,
@@ -376,6 +381,8 @@ impl Track {
             instrument_bypassed: false,
             midi_bypassed: Vec::new(),
             output: OutputRoute::Auto,
+            takes: Vec::new(),
+            show_takes: false,
             pre_fader: false,
         }
     }
@@ -758,6 +765,14 @@ pub struct Mapping {
     pub max: f32,
 }
 
+/// One recorded pass, kept for comping.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TakeLane {
+    pub name: String,
+    pub clips: Vec<ArrangementClip>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArrangementClip {
     pub start: Beats,
@@ -770,6 +785,20 @@ pub struct ArrangementClip {
     #[serde(default)]
     pub offset: Beats,
     pub clip: Clip,
+}
+
+impl Clip {
+    /// Same material (notes, or audio file and start), ignoring name, color
+    /// and launch settings.
+    pub fn content_eq(&self, other: &Clip) -> bool {
+        match (&self.content, &other.content) {
+            (ClipContent::Midi { notes: a }, ClipContent::Midi { notes: b }) => {
+                a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.pitch == y.pitch && x.start == y.start && x.length == y.length && x.velocity == y.velocity)
+            }
+            (ClipContent::Audio(a), ClipContent::Audio(b)) => a.file == b.file && a.start_offset == b.start_offset,
+            _ => false,
+        }
+    }
 }
 
 impl ArrangementClip {

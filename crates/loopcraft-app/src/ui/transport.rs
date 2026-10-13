@@ -136,6 +136,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         {
             app.session_record();
         }
+        if ui.small_button("Capture").on_hover_text("Capture MIDI: turn what you just played into a clip, without having pressed Record").clicked() {
+            app.capture_midi();
+        }
         let count = st.count_in_left.load();
         let pos = if count > 0.0 { format!("-{:.0}", count.ceil()) } else { format_position(st.beat.load(), app.project.time_signature.beats_per_bar()) };
         ui.label(RichText::new(pos).monospace().size(15.0).color(if count > 0.0 { theme::REC } else { theme::TEXT }));

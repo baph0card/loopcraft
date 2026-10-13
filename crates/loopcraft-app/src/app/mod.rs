@@ -210,6 +210,10 @@ pub struct App {
     pub audio_edit: crate::audio::AudioSettings,
     /// Browser clicks add into this rack chain: (channel, rack device, chain).
     pub rack_insert: Option<(TrackRef, loopcraft_engine::DeviceRef, usize)>,
+    /// Session clips being recorded into the Arrangement: track -> (slot, clip offset, start beat).
+    pub session_rec: BTreeMap<usize, (usize, f64, f64)>,
+    /// Comping drag on a take lane: (track, lane, start beat).
+    pub comp_drag: Option<(usize, usize, f64)>,
 }
 
 impl App {
@@ -309,6 +313,8 @@ impl App {
             device_list: None,
             audio_edit: Default::default(),
             rack_insert: None,
+            session_rec: BTreeMap::new(),
+            comp_drag: None,
         };
         app.audio_edit = app.settings.audio.clone();
         app.report_load_errors();

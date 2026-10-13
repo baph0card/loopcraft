@@ -514,3 +514,79 @@ fn pre_fader_sends_ignore_the_fader() {
     let muted = render(&mut e, 4800);
     assert!(peak(&muted) < 1e-3);
 }
+
+#[test]
+fn loop_recording_keeps_a_running_take_clock() {
+    // Loop brace 0..4 beats; record into the arrangement for three passes.
+    let mut p = Project::default();
+    p.add_track(synth_track());
+    p.quantization = Quantization::None;
+    p.loop_region = Some((0.0, 4.0));
+    let (mut e, mut h) = engine_for(&p);
+    h.send(Command::Play).ok();
+    h.send(Command::RecordMidi(RecordBuffer::with(0, RecTarget::Arrangement, None), RecStart::Now)).ok();
+    // One note per pass, each at beat 1 of the loop.
+    for _ in 0..3 {
+        render(&mut e, beats(1.0, 120.0));
+        h.send(Command::NoteOn { track: 0, note: 60, velocity: 100 }).ok();
+        render(&mut e, beats(0.5, 120.0));
+        h.send(Command::NoteOff { track: 0, note: 60 }).ok();
+        render(&mut e, beats(2.5, 120.0));
+    }
+    h.send(Command::StopRecording { track: None }).ok();
+    render(&mut e, 256);
+    let p = h.poll_all();
+    assert_eq!(p.midi.len(), 1);
+    let buf = &p.midi[0];
+    let starts: Vec<f64> = buf.notes.iter().map(|n| (n.start * 100.0).round() / 100.0).collect();
+    assert_eq!(starts, vec![1.0, 5.0, 9.0], "positions keep counting across wraps");
+    assert!((buf.recorded_length - 12.0).abs() < 0.05, "{}", buf.recorded_length);
+    assert_eq!(buf.start, 0.0);
+}
+
+#[test]
+fn capture_midi_recovers_recent_notes_while_stopped() {
+    let mut p = Project::default();
+    p.add_track(synth_track());
+    let (mut e, mut h) = engine_for(&p);
+    render(&mut e, 2400);
+    for _ in 0..2 {
+        h.send(Command::NoteOn { track: 0, note: 67, velocity: 80 }).ok();
+        render(&mut e, beats(0.5, 120.0));
+        h.send(Command::NoteOff { track: 0, note: 67 }).ok();
+        render(&mut e, beats(0.5, 120.0));
+    }
+    h.send(Command::NoteOn { track: 0, note: 72, velocity: 90 }).ok();
+    render(&mut e, 480);
+    h.send(Command::CaptureMidi(RecordBuffer::with(0, RecTarget::Capture, None))).ok();
+    render(&mut e, 64);
+    let got = h.poll_all().midi;
+    assert_eq!(got.len(), 1);
+    let ns = &got[0].notes;
+    assert_eq!(ns.len(), 3, "two finished notes and one still held");
+    assert_eq!(got[0].target, RecTarget::Capture);
+    assert!(((ns[1].start - ns[0].start) - 1.0).abs() < 0.02, "a beat apart on the free-running clock");
+    assert_eq!(ns[2].pitch, 72);
+}
+
+#[test]
+fn session_changes_are_reported_in_order() {
+    let mut p = Project::default();
+    p.add_scene("1");
+    p.add_scene("2");
+    p.add_track(synth_track());
+    p.tracks[0].slots[0] = Some(note_clip(60, 4.0));
+    p.tracks[0].slots[1] = Some(note_clip(64, 4.0));
+    let (mut e, mut h) = engine_for(&p);
+    h.send(Command::LaunchClip { track: 0, slot: 0 }).ok();
+    render(&mut e, beats(1.0, 120.0));
+    h.send(Command::LaunchClip { track: 0, slot: 1 }).ok();
+    render(&mut e, beats(4.0, 120.0));
+    h.send(Command::StopTrack { track: 0 }).ok();
+    render(&mut e, beats(4.0, 120.0));
+    let ev = h.poll_all().session;
+    let slots: Vec<Option<usize>> = ev.iter().map(|e| e.1).collect();
+    assert_eq!(slots, vec![Some(0), Some(1), None]);
+    let ats: Vec<f64> = ev.iter().map(|e| (e.3 * 1000.0).round() / 1000.0).collect();
+    assert_eq!(ats, vec![0.0, 4.0, 8.0], "launches and the stop land on the bar");
+}

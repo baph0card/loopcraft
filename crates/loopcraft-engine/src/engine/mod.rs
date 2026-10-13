@@ -66,8 +66,24 @@ pub(crate) enum RecKind {
 pub(crate) struct Recording {
     pub kind: RecKind,
     pub track: usize,
+    /// Song beat where the take starts.
     pub start: Beats,
-    pub end: Option<Beats>,
+    /// Take length (in elapsed beats) at which it finishes; `None` = open-ended.
+    pub length: Option<Beats>,
+    /// Beats skipped by loop-brace wraps since the take started, so the
+    /// take's clock keeps running forward across passes.
+    pub offset: Beats,
+}
+
+impl Recording {
+    /// Elapsed beats of the take at song beat `beat`.
+    pub fn clock(&self, beat: Beats) -> Beats {
+        beat - self.start + self.offset
+    }
+
+    pub fn started(&self, beat: Beats) -> bool {
+        self.offset > 0.0 || beat + 1e-9 >= self.start
+    }
 }
 
 /// The audio graph and transport. Built off the audio thread from a
@@ -110,6 +126,8 @@ pub struct Core {
     pub(crate) count_in: Option<(Beats, Beats)>,
     pub(crate) click: Click,
     pub(crate) recordings: Vec<Recording>,
+    /// Session clip per track as of the last chunk: (slot, clip origin beat).
+    pub(crate) prev_session: Vec<Option<(usize, Beats)>>,
     pub(crate) state: Arc<EngineState>,
     /// Events produced inside a chunk, flushed to the event ring afterwards.
     /// Preallocated; never grows on the audio thread.
@@ -181,6 +199,8 @@ pub struct Engine {
 pub struct Polled {
     pub midi: Vec<Box<crate::command::RecordBuffer>>,
     pub audio: Vec<Box<crate::command::AudioRecord>>,
+    /// (track, slot or None for stopped, clip origin beat, beat of the change), in order.
+    pub session: Vec<(usize, Option<usize>, Beats, Beats)>,
 }
 
 /// Owned by the UI / control thread.
@@ -216,6 +236,7 @@ impl EngineHandle {
             match ev {
                 EngineEvent::Recorded(r) => out.midi.push(r),
                 EngineEvent::AudioRecorded(a) => out.audio.push(a),
+                EngineEvent::SessionChanged { track, slot, origin, at } => out.session.push((track, slot, origin, at)),
                 EngineEvent::Garbage(_) => {}
             }
         }
@@ -265,9 +286,12 @@ impl Engine {
     }
 
     fn flush_outbox(&mut self) {
-        while let Some(ev) = self.core.outbox.pop() {
+        // In order: the UI relies on event order (e.g. clip launches).
+        let mut out = std::mem::take(&mut self.core.outbox);
+        for ev in out.drain(..) {
             self.dispose(ev);
         }
+        self.core.outbox = out;
     }
 
     /// Render a block of planar stereo audio (no input, cue discarded).

@@ -14,11 +14,14 @@ const LANE_H: f32 = 46.0;
 const AUTO_H: f32 = 54.0;
 const TEMPO_H: f32 = 50.0;
 const EDGE: f32 = 6.0;
+const TAKE_H: f32 = 30.0;
 
 struct Lane {
     track: usize,
     y: f32,
     auto: Option<AutomationTarget>,
+    /// Take lanes shown under the track.
+    takes: usize,
 }
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
@@ -66,8 +69,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             continue;
         }
         let auto = app.automation_view.get(&t).copied();
-        lanes.push(Lane { track: t, y, auto });
-        y += LANE_H + if auto.is_some() { AUTO_H } else { 0.0 };
+        let tr = &app.project.tracks[t];
+        let takes = if tr.show_takes { tr.takes.len() } else { 0 };
+        lanes.push(Lane { track: t, y, auto, takes });
+        y += LANE_H + if auto.is_some() { AUTO_H } else { 0.0 } + takes as f32 * TAKE_H;
     }
     let height = y + 20.0;
 
@@ -133,6 +138,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             track_lane(app, ui, &p, area, width, lane, &st, &x_of, &beat_of, &mut actions);
             if let Some(target) = lane.auto {
                 automation_lane(app, ui, &p, area, width, lane.track, lane.y + LANE_H, target, &x_of, &beat_of, &snap);
+            }
+            if lane.takes > 0 {
+                let y0 = lane.y + LANE_H + if lane.auto.is_some() { AUTO_H } else { 0.0 };
+                take_lanes(app, ui, &p, area, width, lane.track, y0, &x_of, &beat_of, &snap);
             }
         }
         apply_lane_actions(app, actions, bar);
@@ -374,7 +383,10 @@ fn tempo_lane(
         let c = pos2(x_of(b), y_of(bpm));
         p.circle_filled(c, 3.5, theme::ACCENT);
         let press = if resp.drag_started() { ui.input(|i| i.pointer.press_origin()) } else { None };
-        if press.is_some_and(|q| q.distance(c) < 7.0) || resp.interact_pointer_pos().is_some_and(|q| q.distance(c) < 7.0) || resp.hover_pos().is_some_and(|q| q.distance(c) < 7.0) {
+        if press.is_some_and(|q| q.distance(c) < 7.0)
+            || resp.interact_pointer_pos().is_some_and(|q| q.distance(c) < 7.0)
+            || resp.hover_pos().is_some_and(|q| q.distance(c) < 7.0)
+        {
             hit = Some(i);
             p.text(c + vec2(6.0, -8.0), Align2::LEFT_BOTTOM, format!("{bpm:.1}"), FontId::proportional(10.0), theme::TEXT);
         }
@@ -440,7 +452,7 @@ fn track_lane(
     let t = lane.track;
     let bar = app.project.time_signature.beats_per_bar();
     let y = area.top() + lane.y;
-    let full_h = LANE_H + if lane.auto.is_some() { AUTO_H } else { 0.0 };
+    let full_h = LANE_H + if lane.auto.is_some() { AUTO_H } else { 0.0 } + lane.takes as f32 * TAKE_H;
     let lane_r = Rect::from_min_size(pos2(area.left(), y), vec2(width, LANE_H));
     let track = &app.project.tracks[t];
     let following = st.tracks.get(t).map(|s| s.follows_arrangement.load(Relaxed)).unwrap_or(true);
@@ -458,12 +470,12 @@ fn track_lane(
     let (armed, mute, solo, folded) = (track.armed, track.mixer.mute, track.mixer.solo, track.folded);
     p.text(head.left_top() + vec2(10.0 + indent + if is_group { 12.0 } else { 0.0 }, 6.0), Align2::LEFT_TOP, &name, FontId::proportional(12.0), theme::TEXT);
     if !following {
-        p.text(head.left_top() + vec2(10.0 + indent, 22.0), Align2::LEFT_TOP, "playing Session", FontId::proportional(9.0), theme::ACCENT);
+        p.text(head.left_top() + vec2(10.0 + indent, 19.0), Align2::LEFT_TOP, "playing Session", FontId::proportional(9.0), theme::ACCENT);
     }
     let h_resp = ui.interact(head, ui.id().with(("head", t)), Sense::click());
     // Small header buttons.
     let bx = head.right() - 4.0;
-    let by = head.top() + LANE_H - 20.0;
+    let by = head.top() + LANE_H - 18.0;
     let mut btn = |i: f32, label: &str, on: bool, color: Color32, hint: &str| -> bool {
         let r = Rect::from_min_size(pos2(bx - (i + 1.0) * 20.0, by), vec2(18.0, 16.0));
         ui.put(
@@ -477,6 +489,9 @@ fn track_lane(
     let solo_click = btn(1.0, "S", solo, theme::SOLO, "Solo");
     let mute_click = btn(2.0, "M", mute, theme::ACCENT, "Mute");
     let arm_click = !is_group && btn(3.0, "R", armed, theme::REC, "Arm");
+    let has_takes = !track.takes.is_empty();
+    let show_takes = track.show_takes;
+    let takes_click = has_takes && btn(4.0, "T", show_takes, theme::ACCENT, "Show take lanes (loop-recorded passes) for comping");
     if is_group {
         let fr = Rect::from_min_size(head.min + vec2(8.0 + indent, 6.0), vec2(12.0, 12.0));
         let fresp = ui.interact(fr, ui.id().with(("afold", t)), Sense::click());
@@ -491,6 +506,9 @@ fn track_lane(
         if fresp.clicked() {
             app.project.tracks[t].folded = !folded;
         }
+    }
+    if takes_click {
+        app.project.tracks[t].show_takes = !show_takes;
     }
     if auto_click {
         if lane.auto.is_some() {
@@ -632,6 +650,81 @@ fn track_lane(
     }
 }
 
+/// Take lanes under a track: each shows one recorded pass. Drag across a
+/// lane (or click one of its clips) to copy that part onto the timeline.
+#[allow(clippy::too_many_arguments)]
+fn take_lanes(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    p: &egui::Painter,
+    area: Rect,
+    width: f32,
+    t: usize,
+    y_rel: f32,
+    x_of: &dyn Fn(f64) -> f32,
+    beat_of: &dyn Fn(f32) -> f64,
+    snap: &dyn Fn(f64) -> f64,
+) {
+    let ppb = app.arr_pixels_per_beat;
+    let takes = app.project.tracks[t].takes.clone();
+    let main = app.project.tracks[t].arrangement.clone();
+    let mut delete = None;
+    for (i, lane) in takes.iter().enumerate() {
+        let y = area.top() + y_rel + i as f32 * TAKE_H;
+        let head = Rect::from_min_size(pos2(area.left() + 12.0, y + 1.0), vec2(HEAD_W - 14.0, TAKE_H - 2.0));
+        p.rect_filled(head, 2.0, theme::dim(theme::PANEL, 0.8));
+        p.text(head.left_center() + vec2(6.0, 0.0), Align2::LEFT_CENTER, &lane.name, FontId::proportional(10.0), theme::DIM);
+        if ui
+            .put(Rect::from_min_size(pos2(head.right() - 20.0, head.center().y - 8.0), vec2(18.0, 16.0)), egui::Button::new(RichText::new("x").size(10.0)))
+            .on_hover_text("Delete this take lane")
+            .clicked()
+        {
+            delete = Some(i);
+        }
+        let body = Rect::from_min_max(pos2(area.left() + HEAD_W, y + 1.0), pos2(area.left() + width, y + TAKE_H - 1.0));
+        p.rect_filled(body, 0.0, theme::dim(theme::BG, 1.15));
+        for r in &lane.clips {
+            let rr = Rect::from_min_max(pos2(x_of(r.start), body.top() + 2.0), pos2(x_of(r.end()), body.bottom() - 2.0));
+            // Brighter where this take is what the timeline currently plays.
+            let used = main.iter().any(|m| m.clip.content_eq(&r.clip) && m.start < r.end() && m.end() > r.start);
+            let base = theme::rgb(r.clip.color);
+            p.rect_filled(rr, 2.0, if used { theme::dim(base, 0.7) } else { theme::dim(base, 0.3) });
+            draw_clip_preview(app, p, rr.shrink(2.0), r, ppb);
+        }
+        let resp = ui.interact(body, ui.id().with(("take", t, i)), Sense::click_and_drag());
+        if resp.drag_started()
+            && let Some(pos) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
+        {
+            app.comp_drag = Some((t, i, snap(beat_of(pos.x))));
+        }
+        if let (Some((dt, di, a)), Some(pos)) = (app.comp_drag, ui.ctx().pointer_interact_pos())
+            && dt == t
+            && di == i
+        {
+            let b = snap(beat_of(pos.x));
+            let sel = Rect::from_min_max(pos2(x_of(a.min(b)), body.top()), pos2(x_of(a.max(b)), body.bottom()));
+            p.rect_stroke(sel, 1.0, Stroke::new(1.5, Color32::WHITE), StrokeKind::Inside);
+            if ui.input(|inp| inp.pointer.any_released()) {
+                app.comp_drag = None;
+                if (b - a).abs() > 1e-6 {
+                    app.comp_from_take(t, i, a, b);
+                }
+            }
+        }
+        if resp.clicked()
+            && let Some(pos) = resp.interact_pointer_pos()
+        {
+            let at = beat_of(pos.x);
+            if let Some(r) = lane.clips.iter().find(|r| r.start <= at && at < r.end()) {
+                app.comp_from_take(t, i, r.start, r.end());
+            }
+        }
+    }
+    if let Some(i) = delete {
+        app.delete_take_lane(t, i);
+    }
+}
+
 fn apply_lane_actions(app: &mut App, act: LaneActions, bar: f64) {
     if let Some(c) = act.select {
         app.selected_clip = Some(c);
@@ -753,7 +846,9 @@ fn automation_lane(
     for (i, &(b, v)) in pts.iter().enumerate() {
         let c = pos2(x_of(b), y_of(v));
         let press = if resp.drag_started() { ui.input(|i| i.pointer.press_origin()) } else { None };
-        let near = press.is_some_and(|q| q.distance(c) < 7.0) || resp.hover_pos().is_some_and(|q| q.distance(c) < 7.0) || resp.interact_pointer_pos().is_some_and(|q| q.distance(c) < 7.0);
+        let near = press.is_some_and(|q| q.distance(c) < 7.0)
+            || resp.hover_pos().is_some_and(|q| q.distance(c) < 7.0)
+            || resp.interact_pointer_pos().is_some_and(|q| q.distance(c) < 7.0);
         p.circle_filled(c, if near { 4.5 } else { 3.0 }, color);
         if near {
             hit = Some(i);

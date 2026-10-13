@@ -376,7 +376,13 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             p.rect_filled(key, 0.0, if black { Color32::from_gray(40) } else { Color32::from_gray(200) });
             if (pitch % 12 == 0 || app.piano_fold) && row_h >= 7.0 {
                 let name = format!("{}{}", NOTE_NAMES[(pitch % 12) as usize], pitch / 12 - 2);
-                p.text(key.right_center() - vec2(2.0, 0.0), Align2::RIGHT_CENTER, name, FontId::proportional(row_h.min(10.0)), if black { Color32::WHITE } else { Color32::BLACK });
+                p.text(
+                    key.right_center() - vec2(2.0, 0.0),
+                    Align2::RIGHT_CENTER,
+                    name,
+                    FontId::proportional(row_h.min(10.0)),
+                    if black { Color32::WHITE } else { Color32::BLACK },
+                );
             }
         }
         if clip.looping && clip.loop_start > 0.0 {
@@ -403,7 +409,10 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
         let groove = clip.groove.and_then(|g| app.project.grooves.get(g)).cloned();
 
         let color = theme::rgb(clip.color);
-        let note_rect = |n: &Note| row_of(n.pitch as i32).map(|r| Rect::from_min_max(pos2(x_of(n.start), y_of_row(r) + 0.5), pos2(x_of((n.start + n.length).min(len)), y_of_row(r) + row_h - 0.5)));
+        let note_rect = |n: &Note| {
+            row_of(n.pitch as i32)
+                .map(|r| Rect::from_min_max(pos2(x_of(n.start), y_of_row(r) + 0.5), pos2(x_of((n.start + n.length).min(len)), y_of_row(r) + row_h - 0.5)))
+        };
         for (i, n) in notes.iter().enumerate() {
             let Some(r) = note_rect(n) else { continue };
             let vel = 0.45 + 0.55 * n.velocity as f32 / 127.0;
@@ -430,10 +439,16 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
         }
 
         let pos = match cref {
-            ClipRef::Session { track, slot } => app.engine.state.tracks.get(track).filter(|ts| ts.playing_slot.load(Relaxed) == slot as i32).map(|ts| ts.clip_position.load()),
-            ClipRef::Arrangement { track, index } => {
-                app.engine.state.tracks.get(track).filter(|ts| ts.arrangement_clip.load(Relaxed) == index as i32 && ts.playing_slot.load(Relaxed) < 0).map(|ts| ts.clip_position.load())
+            ClipRef::Session { track, slot } => {
+                app.engine.state.tracks.get(track).filter(|ts| ts.playing_slot.load(Relaxed) == slot as i32).map(|ts| ts.clip_position.load())
             }
+            ClipRef::Arrangement { track, index } => app
+                .engine
+                .state
+                .tracks
+                .get(track)
+                .filter(|ts| ts.arrangement_clip.load(Relaxed) == index as i32 && ts.playing_slot.load(Relaxed) < 0)
+                .map(|ts| ts.clip_position.load()),
         };
         if let Some(cp) = pos {
             let x = x_of(cp);
@@ -507,7 +522,8 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
                     app.piano_drag = Some(PianoDrag { mode, origs, beat0: b0, pitch0: p0 });
                 }
                 None => {
-                    app.piano_drag = Some(PianoDrag { mode: PianoDragMode::Marquee { additive: mods.shift || mods.command }, origs: Vec::new(), beat0: b0, pitch0: p0 });
+                    app.piano_drag =
+                        Some(PianoDrag { mode: PianoDragMode::Marquee { additive: mods.shift || mods.command }, origs: Vec::new(), beat0: b0, pitch0: p0 });
                 }
             }
         }
@@ -549,7 +565,10 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             let x = x_of(n.start);
             let h = n.velocity as f32 / 127.0 * lane.height();
             let s = sel.contains(&i);
-            vp.line_segment([pos2(x + 1.0, lane.bottom()), pos2(x + 1.0, lane.bottom() - h)], Stroke::new(3.0, if s { Color32::WHITE } else { theme::dim(color, 0.9) }));
+            vp.line_segment(
+                [pos2(x + 1.0, lane.bottom()), pos2(x + 1.0, lane.bottom() - h)],
+                Stroke::new(3.0, if s { Color32::WHITE } else { theme::dim(color, 0.9) }),
+            );
         }
         if (vresp.dragged() || vresp.clicked())
             && let Some(pos) = vresp.interact_pointer_pos()

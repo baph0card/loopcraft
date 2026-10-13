@@ -107,6 +107,9 @@ impl Core {
                     ev_b: EventList::new(),
                     live: [(false, 0, 0); 64],
                     live_len: 0,
+                    capture: Box::new([(0.0, false, 0, 0); CAPTURE]),
+                    capture_pos: 0,
+                    capture_len: 0,
                     active_notes: [false; 128],
                     rng: Noise::with_seed(0xA5A5_0000 ^ (i as u32 + 1)),
                     stretch: Stretchers::new(sr),
@@ -218,6 +221,7 @@ impl Core {
             count_in: None,
             click: Click { t: 0, len: 0, freq: 1000.0, phase: 0.0, amp: 0.0 },
             recordings: Vec::with_capacity(64),
+            prev_session: vec![None; n],
             state,
             outbox: Vec::with_capacity(128),
             input: vec![vec![0.0; MAX_HOST_FRAMES]; MAX_INPUTS],
@@ -242,12 +246,19 @@ impl Core {
         new.scene_follow = self.scene_follow;
         new.cue_mode = self.cue_mode;
         new.tempo_auto = self.tempo_auto && !new.tempo_points.is_empty();
-        for (n, o) in new.tracks.iter_mut().zip(self.tracks.iter()) {
+        for (n, o) in new.tracks.iter_mut().zip(self.tracks.iter_mut()) {
             n.follows_arrangement = o.follows_arrangement;
             n.session = o.session.filter(|s| n.slots.get(s.slot).is_some_and(|c| c.is_some()));
             n.pending = o.pending;
             n.follow_at = if n.session.is_some() { o.follow_at } else { None };
             n.arr_recording = o.arr_recording;
+            // Capture history survives graph rebuilds.
+            std::mem::swap(&mut n.capture, &mut o.capture);
+            n.capture_pos = o.capture_pos;
+            n.capture_len = o.capture_len;
+        }
+        for (i, p) in new.prev_session.iter_mut().enumerate() {
+            *p = self.prev_session.get(i).copied().flatten();
         }
         // Recordings keep going in the new graph (their buffers move over).
         while let Some(r) = self.recordings.pop() {

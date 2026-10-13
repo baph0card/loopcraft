@@ -107,9 +107,12 @@ impl Core {
             }
         }
         for r in &self.recordings {
-            consider(r.start);
-            if let Some(e) = r.end {
-                consider(e);
+            if !r.started(self.beat) {
+                consider(r.start);
+            }
+            if let Some(l) = r.length {
+                // Song beat where the take's clock reaches its length.
+                consider(r.start - r.offset + l);
             }
         }
         for t in &self.tracks {
@@ -257,14 +260,14 @@ impl Core {
     pub(crate) fn finish_due_recordings(&mut self, now: Beats) {
         let mut i = 0;
         while i < self.recordings.len() {
-            let due = self.recordings[i].end.is_some_and(|e| e <= now);
+            let r = &self.recordings[i];
+            let due = r.length.is_some_and(|l| now == f64::INFINITY || r.clock(now) >= l - 1e-9);
             if !due {
                 i += 1;
                 continue;
             }
             let r = self.recordings.swap_remove(i);
-            let end = r.end.unwrap_or(self.beat);
-            let len = (end - r.start).max(0.0);
+            let len = r.length.unwrap_or_else(|| r.clock(self.beat)).max(0.0);
             let track = r.track;
             match r.kind {
                 RecKind::Midi(mut buf) => {

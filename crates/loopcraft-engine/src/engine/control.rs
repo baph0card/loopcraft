@@ -181,9 +181,9 @@ impl Core {
                 if buf.target == RecTarget::Arrangement {
                     self.tracks[track].arr_recording = true;
                 }
-                let end = buf.length.map(|l| start + l);
+                let length = buf.length;
                 self.ensure_playing();
-                self.recordings.push(Recording { kind: RecKind::Midi(buf), track, start, end });
+                self.recordings.push(Recording { kind: RecKind::Midi(buf), track, start, length, offset: 0.0 });
                 self.mark_recording(track);
             }
             Command::RecordAudio(rec, when) => {
@@ -196,26 +196,57 @@ impl Core {
                 if rec.target == RecTarget::Arrangement {
                     self.tracks[track].arr_recording = true;
                 }
-                let end = rec.length.map(|l| start + l);
+                let length = rec.length;
                 self.ensure_playing();
-                self.recordings.push(Recording { kind: RecKind::Audio(rec), track, start, end });
+                self.recordings.push(Recording { kind: RecKind::Audio(rec), track, start, length, offset: 0.0 });
                 self.mark_recording(track);
+            }
+            Command::CaptureMidi(mut buf) => {
+                if let Some(t) = self.tracks.get(buf.track) {
+                    let clock = if self.playing { self.beat } else { self.free_beat };
+                    let mut held: [Option<(f64, u8)>; 128] = [None; 128];
+                    let first = (t.capture_pos + CAPTURE - t.capture_len) % CAPTURE;
+                    for k in 0..t.capture_len {
+                        let (b, on, note, vel) = t.capture[(first + k) % CAPTURE];
+                        let n = note as usize & 127;
+                        if on {
+                            held[n] = Some((b, vel));
+                        } else if let Some((s, v)) = held[n].take()
+                            && buf.notes.len() < buf.notes.capacity()
+                        {
+                            buf.notes.push(Note::new(note, s, (b - s).max(1.0 / 64.0), v));
+                        }
+                    }
+                    // Notes still held end now.
+                    for (n, h) in held.iter().enumerate() {
+                        if let Some((s, v)) = h
+                            && buf.notes.len() < buf.notes.capacity()
+                        {
+                            buf.notes.push(Note::new(n as u8, *s, (clock - s).max(1.0 / 64.0), *v));
+                        }
+                    }
+                    buf.notes.sort_unstable_by(|a, b| a.start.total_cmp(&b.start));
+                    buf.target = RecTarget::Capture;
+                    buf.start = 0.0;
+                    buf.recorded_length = clock;
+                }
+                self.post(EngineEvent::Recorded(buf));
             }
             Command::StopRecording { track } => match track {
                 Some(t) => {
                     let at = self.launch_time(None).max(self.beat);
-                    for r in self.recordings.iter_mut().filter(|r| r.track == t && r.end.is_none()) {
+                    let q = self.quant.grid(self.sig).unwrap_or(0.0);
+                    for r in self.recordings.iter_mut().filter(|r| r.track == t && r.length.is_none()) {
                         // Round the take up to whole quantize steps from its start.
-                        let q = self.quant.grid(self.sig).unwrap_or(0.0);
-                        let len = (at - r.start).max(0.0);
+                        let len = r.clock(at).max(0.0);
                         let len = if q > 0.0 { (len / q).ceil().max(1.0) * q } else { len.max(1.0 / 16.0) };
-                        r.end = Some(r.start + len);
+                        r.length = Some(len);
                     }
                 }
                 None => {
                     let now = self.beat;
                     for r in self.recordings.iter_mut() {
-                        r.end = Some(now.max(r.start));
+                        r.length = Some(r.clock(now).max(0.0));
                     }
                 }
             },
@@ -301,11 +332,16 @@ impl Core {
 
     fn live_note(&mut self, track: usize, on: bool, note: u8, vel: u8) {
         let beat = self.beat;
-        if let Some(t) = self.tracks.get_mut(track)
-            && t.live_len < t.live.len()
-        {
-            t.live[t.live_len] = (on, note, vel);
-            t.live_len += 1;
+        let clock = if self.playing { self.beat } else { self.free_beat };
+        if let Some(t) = self.tracks.get_mut(track) {
+            if t.live_len < t.live.len() {
+                t.live[t.live_len] = (on, note, vel);
+                t.live_len += 1;
+            }
+            let i = t.capture_pos;
+            t.capture[i] = (clock, on, note, vel);
+            t.capture_pos = (i + 1) % CAPTURE;
+            t.capture_len = (t.capture_len + 1).min(CAPTURE);
         }
         let playing_clip = self.tracks.get(track).and_then(|t| t.session).zip(
             self.tracks
@@ -313,13 +349,14 @@ impl Core {
                 .and_then(|t| t.session.and_then(|s| t.slots.get(s.slot)).and_then(|c| c.as_ref().map(|c| (c.length, c.loop_start, c.looping)))),
         );
         for rec in self.recordings.iter_mut() {
-            if rec.track != track || beat + 1e-9 < rec.start {
+            if rec.track != track || !rec.started(beat) {
                 continue;
             }
+            let clock = rec.clock(beat);
             let RecKind::Midi(buf) = &mut rec.kind else { continue };
             let pos = match (buf.overdub, playing_clip) {
                 (Some(clip_start), Some((_, (len, ls, looping)))) => crate::clip::local_pos(beat - clip_start, len, ls, looping),
-                _ => beat - rec.start,
+                _ => clock,
             };
             let n = note as usize & 127;
             if on {
@@ -420,7 +457,7 @@ impl Core {
         // Finish any recordings at the current position.
         let now = self.beat;
         for r in self.recordings.iter_mut() {
-            r.end = Some(now.max(r.start));
+            r.length = Some(r.clock(now).max(0.0));
         }
         self.finish_due_recordings(f64::INFINITY);
         for t in self.tracks.iter_mut() {

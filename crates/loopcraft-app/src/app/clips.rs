@@ -170,6 +170,12 @@ impl App {
             for r in tr.arrangement.iter_mut().filter(|r| r.start >= b - 1e-9) {
                 r.start -= d;
             }
+            for lane in tr.takes.iter_mut() {
+                lane.clips.retain(|r| r.end() <= a + 1e-9 || r.start >= b - 1e-9);
+                for r in lane.clips.iter_mut().filter(|r| r.start >= b - 1e-9) {
+                    r.start -= d;
+                }
+            }
             for lane in tr.automation.iter_mut() {
                 lane.points.retain(|p| p.0 < a || p.0 >= b);
                 for p in lane.points.iter_mut().filter(|p| p.0 >= b) {
@@ -202,6 +208,11 @@ impl App {
             let tr = &mut self.project.tracks[t];
             for r in tr.arrangement.iter_mut().filter(|r| r.start >= at - 1e-9) {
                 r.start += d;
+            }
+            for lane in tr.takes.iter_mut() {
+                for r in lane.clips.iter_mut().filter(|r| r.start >= at - 1e-9) {
+                    r.start += d;
+                }
             }
             for lane in tr.automation.iter_mut() {
                 for p in lane.points.iter_mut().filter(|p| p.0 >= at) {
