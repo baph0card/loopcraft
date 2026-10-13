@@ -1,16 +1,19 @@
 //! Real-time clip representation and MIDI event scheduling.
 
-use loopcraft_core::{Beats, Clip, ClipContent, LaunchMode, Note, Quantization, WarpMode, db_to_gain};
-use loopcraft_dsp::util::Noise;
+pub use loopcraft_dsp::midi::{EventList, MidiEvent};
+use loopcraft_core::*;
+use loopcraft_dsp::stretch::detect_transients;
 use loopcraft_dsp::{AudioBuffer, SampleLoader};
 use std::sync::Arc;
 
 pub struct RtAudio {
     pub buf: Option<Arc<AudioBuffer>>,
-    pub warp: WarpMode,
-    pub original_bpm: f64,
-    pub start_offset: Beats,
+    /// The saved settings (warp markers, offsets, fades...).
+    pub spec: AudioClip,
     pub gain: f32,
+    pub pitch_ratio: f64,
+    /// Transient positions (samples) for Beats mode.
+    pub slices: Arc<Vec<usize>>,
 }
 
 pub enum RtContent {
@@ -18,128 +21,83 @@ pub enum RtContent {
     Audio(RtAudio),
 }
 
-/// A clip prepared for the audio thread (notes sorted, audio decoded).
+/// A clip prepared for the audio thread (notes sorted, groove applied,
+/// audio decoded and analysed).
 pub struct RtClip {
     pub name: String,
     pub length: Beats,
+    pub loop_start: Beats,
     pub looping: bool,
     pub launch_mode: LaunchMode,
     pub quantization: Option<Quantization>,
+    pub follow: Option<FollowAction>,
     pub content: RtContent,
 }
 
 impl RtClip {
     pub fn from_clip(c: &Clip, loader: &dyn SampleLoader) -> Self {
+        Self::from_clip_with(c, loader, &[])
+    }
+
+    /// Build with the project's groove pool, so the clip's groove (if any)
+    /// is baked into note timing and velocity.
+    pub fn from_clip_with(c: &Clip, loader: &dyn SampleLoader, grooves: &[Groove]) -> Self {
         let content = match &c.content {
             ClipContent::Midi { notes } => {
-                let mut n = notes.clone();
+                let groove = c.groove.and_then(|g| grooves.get(g));
+                let mut n: Vec<Note> = notes
+                    .iter()
+                    .map(|note| {
+                        let mut note = *note;
+                        if let Some(g) = groove {
+                            let (dt, dv) = g.apply(note.start);
+                            note.start = (note.start + dt).max(0.0);
+                            note.velocity = ((note.velocity as f32 * dv).round() as i32).clamp(1, 127) as u8;
+                        }
+                        note
+                    })
+                    .collect();
                 n.sort_by(|a, b| a.start.total_cmp(&b.start));
                 RtContent::Midi(n)
             }
-            ClipContent::Audio(a) => RtContent::Audio(RtAudio {
-                buf: loader.load(&a.file),
-                warp: a.warp,
-                original_bpm: a.original_bpm.max(1.0),
-                start_offset: a.start_offset,
-                gain: db_to_gain(a.gain_db),
-            }),
+            ClipContent::Audio(a) => {
+                let buf = loader.load(&a.file);
+                let slices = match (&buf, a.warp) {
+                    (Some(b), WarpMode::Beats) => Arc::new(detect_transients(b, 40.0)),
+                    _ => Arc::new(vec![0]),
+                };
+                RtContent::Audio(RtAudio { buf, gain: db_to_gain(a.gain_db), pitch_ratio: 2f64.powf(a.transpose as f64 / 12.0), slices, spec: a.clone() })
+            }
         };
-        Self { name: c.name.clone(), length: c.length.max(1e-3), looping: c.looping, launch_mode: c.launch_mode, quantization: c.quantization, content }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct MidiEvent {
-    pub frame: u32,
-    pub on: bool,
-    pub note: u8,
-    pub velocity: u8,
-    /// Chance the note-on survives `EventList::resolve` (1.0 = always).
-    pub probability: f32,
-}
-
-impl MidiEvent {
-    pub fn on(frame: u32, note: u8, velocity: u8) -> Self {
-        Self { frame, on: true, note, velocity, probability: 1.0 }
-    }
-    pub fn off(frame: u32, note: u8) -> Self {
-        Self { frame, on: false, note, velocity: 0, probability: 1.0 }
-    }
-
-    /// Sort key: by frame, with note-offs before note-ons at the same frame
-    /// so a note that ends where it restarts is retriggered cleanly.
-    pub fn key(&self) -> (u32, bool) {
-        (self.frame, self.on)
-    }
-}
-
-/// Fixed-capacity event list. Pushing past capacity drops events rather
-/// than allocating on the audio thread.
-pub struct EventList {
-    events: Vec<MidiEvent>,
-}
-
-impl EventList {
-    pub const CAPACITY: usize = 1024;
-
-    pub fn new() -> Self {
-        Self { events: Vec::with_capacity(Self::CAPACITY) }
-    }
-
-    #[inline]
-    pub fn push(&mut self, e: MidiEvent) {
-        if self.events.len() < Self::CAPACITY {
-            self.events.push(e);
+        let length = c.length.max(1e-3);
+        Self {
+            name: c.name.clone(),
+            length,
+            loop_start: c.loop_start.clamp(0.0, length - 1e-3),
+            looping: c.looping,
+            launch_mode: c.launch_mode,
+            quantization: c.quantization,
+            follow: c.follow.filter(|f| f.enabled),
+            content,
         }
     }
 
-    pub fn clear(&mut self) {
-        self.events.clear();
-    }
-
-    pub fn sort(&mut self) {
-        self.events.sort_unstable_by_key(MidiEvent::key);
-    }
-
-    pub fn as_slice(&self) -> &[MidiEvent] {
-        &self.events
-    }
-
-    pub fn len(&self) -> usize {
-        self.events.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.events.is_empty()
-    }
-
-    /// Drop note-offs for notes that aren't sounding and note-ons that lose
-    /// their probability roll, updating `active` as we go.
-    pub fn resolve(&mut self, active: &mut [bool; 128], rng: &mut Noise) {
-        self.sort();
-        self.events.retain(|e| {
-            let n = e.note as usize & 127;
-            if e.on {
-                let p = e.probability;
-                if p < 1.0 && rng.unit() >= p {
-                    return false;
-                }
-                active[n] = true;
-                true
-            } else if active[n] {
-                active[n] = false;
-                true
-            } else {
-                false
-            }
-        });
+    /// Clip-local position for `t` beats after the clip started.
+    pub fn local(&self, t: Beats) -> Beats {
+        local_pos(t, self.length, self.loop_start, self.looping)
     }
 }
 
-impl Default for EventList {
-    fn default() -> Self {
-        Self::new()
+/// Map time since clip start to a clip-local position: plays 0..len once,
+/// then (when looping) repeats loop_start..len.
+#[inline]
+pub fn local_pos(t: Beats, len: Beats, loop_start: Beats, looping: bool) -> Beats {
+    let t = t.max(0.0);
+    if !looping || t < len {
+        return t;
     }
+    let l = (len - loop_start).max(1e-6);
+    loop_start + (t - len) % l
 }
 
 /// Where a clip sits in song time.
@@ -159,14 +117,27 @@ pub enum ClipStatus {
     Ended(u32),
 }
 
+/// (song offset of the pass start, clip-local position at pass start, pass end local)
+#[inline]
+fn pass_at(t: Beats, len: Beats, ls: Beats, looping: bool) -> (Beats, Beats) {
+    if !looping || t < len {
+        return (0.0, 0.0);
+    }
+    let l = (len - ls).max(1e-6);
+    let k = ((t - len) / l).floor();
+    (len + k * l, ls)
+}
+
 /// Emit note events for song-beat range `[b0, b1)` covering `frames` samples.
 ///
 /// Note-ons are emitted when their start falls in `[s, e)` of a loop pass;
 /// note-offs when their (loop-clamped) end falls in `(s, e]`, so a note that
 /// ends exactly on the loop point is released before the loop restarts.
 #[allow(clippy::too_many_arguments)]
-pub fn schedule_midi(notes: &[Note], length: Beats, looping: bool, place: Placement, b0: Beats, b1: Beats, frames: u32, out: &mut EventList) -> ClipStatus {
-    let len = length.max(1e-6);
+pub fn schedule_midi(notes: &[Note], clip: &RtClip, place: Placement, b0: Beats, b1: Beats, frames: u32, out: &mut EventList) -> ClipStatus {
+    let len = clip.length.max(1e-6);
+    let ls = clip.loop_start;
+    let looping = clip.looping;
     let bpf = (b1 - b0) / frames.max(1) as f64;
     let frame_of = |beat: Beats| -> u32 { (((beat - b0) / bpf).max(0.0) as u32).min(frames.saturating_sub(1)) };
 
@@ -193,23 +164,25 @@ pub fn schedule_midi(notes: &[Note], length: Beats, looping: bool, place: Placem
     const TOL: f64 = 1e-7;
     let mut cur = if b0 < place.start + TOL { place.start } else { b0 };
     while cur < end - TOL {
-        let local = cur - place.start;
-        let pass = if looping { ((local + TOL) / len).floor() } else { 0.0 };
-        let pass_start = place.start + pass * len;
-        let seg_end = end.min(pass_start + len);
-        let s = cur - pass_start;
-        let e = seg_end - pass_start;
-        let (s_lo, e_lo) = (if s < TOL { -TOL } else { s - TOL }, e - TOL);
+        let (ps, pl) = pass_at(cur - place.start + TOL, len, ls, looping);
+        let pass_song = place.start + ps;
+        let pass_end_song = pass_song + (len - pl);
+        let seg_end = end.min(pass_end_song);
+        let s = pl + (cur - pass_song);
+        let e = pl + (seg_end - pass_song);
+        let to_song = |x: Beats| pass_song + (x - pl);
+        let (s_lo, e_lo) = (if (s - pl) < TOL { pl - TOL } else { s - TOL }, e - TOL);
+        let reaches_end = seg_end >= pass_end_song - TOL;
         for n in notes {
             if n.start >= len {
                 continue;
             }
-            if n.start >= s_lo && n.start < e_lo {
-                out.push(MidiEvent { probability: n.probability, ..MidiEvent::on(frame_of(pass_start + n.start), n.pitch, n.velocity) });
+            if n.start >= s_lo && n.start < e_lo && n.start >= pl - TOL {
+                out.push(MidiEvent { probability: n.probability, ..MidiEvent::on(frame_of(to_song(n.start)), n.pitch, n.velocity) });
             }
             let ne = (n.start + n.length).min(len);
-            if ne > s_lo.max(TOL) && ne <= e_lo + if seg_end >= pass_start + len - TOL { TOL * 2.0 } else { 0.0 } {
-                out.push(MidiEvent::off(frame_of(pass_start + ne), n.pitch));
+            if ne > s_lo.max(pl + TOL) && ne <= e_lo + if reaches_end { TOL * 2.0 } else { 0.0 } {
+                out.push(MidiEvent::off(frame_of(to_song(ne)), n.pitch));
             }
         }
         if seg_end <= cur {
@@ -234,21 +207,39 @@ pub fn schedule_midi(notes: &[Note], length: Beats, looping: bool, place: Placem
 /// Map a clip-local beat to a source sample position for audio clips.
 #[inline]
 pub fn audio_source_pos(a: &RtAudio, local: Beats, song_tempo: f64, sample_rate: f64) -> f64 {
-    match a.warp {
-        // Beat-locked: one clip beat is one beat of the original recording.
-        WarpMode::Repitch | WarpMode::Stretch => (a.start_offset + local) * 60.0 / a.original_bpm * sample_rate,
+    let pos = match a.spec.warp {
         // Free-running: clip time advances in real seconds at the song tempo.
-        WarpMode::Off => (a.start_offset * 60.0 / a.original_bpm + local * 60.0 / song_tempo) * sample_rate,
+        WarpMode::Off => (a.spec.seconds_at(0.0) + local * 60.0 / song_tempo) * sample_rate,
+        // Beat-locked (optionally through warp markers).
+        _ => a.spec.seconds_at(local) * sample_rate,
+    };
+    if a.spec.reverse {
+        let len = a.buf.as_ref().map_or(0, |b| b.len()) as f64;
+        len - 1.0 - pos
+    } else {
+        pos
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use loopcraft_dsp::NoSamples;
+    use loopcraft_dsp::util::Noise;
+
+    fn clip(notes: &[Note], len: Beats, looping: bool) -> (Vec<Note>, RtClip) {
+        let c = RtClip::from_clip(&Clip { looping, ..Clip::midi("t", len, notes.to_vec()) }, &NoSamples);
+        let n = match &c.content {
+            RtContent::Midi(n) => n.clone(),
+            _ => unreachable!(),
+        };
+        (n, c)
+    }
 
     fn run(notes: &[Note], len: Beats, looping: bool, place: Placement, b0: Beats, b1: Beats, frames: u32) -> (Vec<MidiEvent>, ClipStatus) {
+        let (n, c) = clip(notes, len, looping);
         let mut ev = EventList::new();
-        let st = schedule_midi(notes, len, looping, place, b0, b1, frames, &mut ev);
+        let st = schedule_midi(&n, &c, place, b0, b1, frames, &mut ev);
         let mut active = [false; 128];
         ev.resolve(&mut active, &mut Noise::default());
         (ev.as_slice().to_vec(), st)
@@ -291,8 +282,6 @@ mod tests {
         let place = Placement { start: 0.0, end: None };
         let (ev, st) = run(&notes, 2.0, false, place, 1.0, 3.0, 100);
         assert_eq!(st, ClipStatus::Ended(50));
-        // Only the release of the note that was started earlier... which this
-        // block never saw start, so `resolve` drops it: no events.
         assert!(ev.is_empty());
     }
 
@@ -303,5 +292,30 @@ mod tests {
         let (ev, st) = run(&notes, 4.0, true, place, 0.0, 2.0, 100);
         assert_eq!(st, ClipStatus::Ended(50));
         assert_eq!(ev.iter().map(|e| (e.frame, e.on)).collect::<Vec<_>>(), vec![(0, true), (50, false)]);
+    }
+
+    #[test]
+    fn loop_start_skips_the_intro_on_repeats() {
+        // 4-beat clip, loop from beat 2: intro note at 0 plays once, loop note at 2 repeats every 2 beats.
+        let notes = [Note::new(60, 0.0, 0.5, 100), Note::new(64, 2.0, 0.5, 100)];
+        let (n, mut c) = clip(&notes, 4.0, true);
+        c.loop_start = 2.0;
+        let mut ev = EventList::new();
+        // 10 beats at 10 frames per beat.
+        schedule_midi(&n, &c, Placement { start: 0.0, end: None }, 0.0, 10.0, 100, &mut ev);
+        let ons: Vec<(u32, u8)> = ev.as_slice().iter().filter(|e| e.on).map(|e| (e.frame, e.note)).collect();
+        assert_eq!(ons, vec![(0, 60), (20, 64), (40, 64), (60, 64), (80, 64)]);
+        assert_eq!(local_pos(5.0, 4.0, 2.0, true), 3.0);
+        assert_eq!(local_pos(6.5, 4.0, 2.0, true), 2.5);
+    }
+
+    #[test]
+    fn groove_shifts_offbeat_sixteenths() {
+        let notes = [Note::new(60, 0.0, 0.1, 100), Note::new(60, 0.25, 0.1, 100)];
+        let c = Clip { groove: Some(0), ..Clip::midi("g", 1.0, notes.to_vec()) };
+        let rt = RtClip::from_clip_with(&c, &NoSamples, &[Groove::swing("s", 0.66)]);
+        let RtContent::Midi(n) = &rt.content else { panic!() };
+        assert_eq!(n[0].start, 0.0);
+        assert!((n[1].start - (0.25 + 0.32 * 0.25)).abs() < 1e-3, "{}", n[1].start);
     }
 }

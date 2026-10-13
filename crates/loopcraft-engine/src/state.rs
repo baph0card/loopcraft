@@ -62,6 +62,13 @@ pub struct TrackState {
     /// Whether the track is following the arrangement timeline.
     pub follows_arrangement: AtomicBool,
     pub recording_slot: AtomicI32,
+    /// Any recording (slot or arrangement, MIDI or audio) in progress.
+    pub recording: AtomicBool,
+    pub armed: AtomicBool,
+    /// Input peak (pre-effects), for input meters on armed tracks.
+    pub input_peak: AtomicF32,
+    /// Arrangement clip index playing, or NONE.
+    pub arrangement_clip: AtomicI32,
 }
 
 #[derive(Default)]
@@ -72,8 +79,18 @@ pub struct EngineState {
     pub tracks: Vec<TrackState>,
     pub returns: Vec<ChannelState>,
     pub master: ChannelState,
+    pub cue: ChannelState,
     /// Fraction of the real-time budget used by the last block (0..1+).
     pub cpu_load: AtomicF32,
+    /// Beats of count-in left (0 = none).
+    pub count_in_left: AtomicF64,
+    /// Total output latency added by delay compensation, in samples.
+    pub latency: AtomicU32,
+    /// True while the tempo follows arrangement tempo automation.
+    pub tempo_follows_arrangement: AtomicBool,
+    /// Scene that will launch next via a scene follow action, or NONE.
+    pub next_scene: AtomicI32,
+    pub input_channels: AtomicU32,
 }
 
 impl EngineState {
@@ -85,9 +102,12 @@ impl EngineState {
                 t.queued_slot.store(NONE, Relaxed);
                 t.recording_slot.store(NONE, Relaxed);
                 t.follows_arrangement.store(true, Relaxed);
+                t.arrangement_clip.store(NONE, Relaxed);
                 t
             })
             .collect();
-        Self { tracks, returns: (0..n_returns).map(|_| ChannelState::default()).collect(), ..Default::default() }
+        let s = Self { tracks, returns: (0..n_returns).map(|_| ChannelState::default()).collect(), ..Default::default() };
+        s.next_scene.store(NONE, Relaxed);
+        s
     }
 }

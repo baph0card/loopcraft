@@ -208,13 +208,17 @@ fn zero_crossing_hz(buf: &[f32]) -> f32 {
 }
 
 fn warp_test(mode: WarpMode) -> f32 {
+    warp_test_t(mode, 0.0)
+}
+
+fn warp_test_t(mode: WarpMode, transpose: f32) -> f32 {
     let tone: Vec<f32> = (0..(SR as usize * 8)).map(|i| (std::f32::consts::TAU * 220.0 * i as f32 / SR).sin() * 0.5).collect();
     let loader = MapLoader(HashMap::from([("tone.wav".to_string(), Arc::new(AudioBuffer { sample_rate: SR, channels: vec![tone] }))]));
     let mut p = Project::default();
     p.tempo = 120.0;
     p.add_scene("1");
     p.add_track(Track::audio("Audio"));
-    let audio = AudioClip { file: "tone.wav".into(), warp: mode, original_bpm: 60.0, ..Default::default() };
+    let audio = AudioClip { file: "tone.wav".into(), warp: mode, original_bpm: 60.0, transpose, ..Default::default() };
     p.tracks[0].slots[0] = Some(Clip::audio("tone", 8.0, audio));
     let (mut e, mut h) = create(Core::from_project(&p, SR, &loader, &NoPlugins));
     h.send(Command::LaunchClip { track: 0, slot: 0 }).ok();
@@ -248,7 +252,7 @@ fn midi_recording_captures_live_notes() {
     p.add_track(synth_track());
     p.quantization = Quantization::None;
     let (mut e, mut h) = engine_for(&p);
-    h.send(Command::RecordMidi(RecordBuffer::new(0, 0, 4.0))).ok();
+    h.send(Command::RecordMidi(RecordBuffer::new(0, 0, 4.0), RecStart::Quantized)).ok();
     render(&mut e, beats(1.0, 120.0));
     h.send(Command::NoteOn { track: 0, note: 64, velocity: 90 }).ok();
     render(&mut e, beats(1.0, 120.0));
@@ -291,4 +295,20 @@ fn swap_core_keeps_transport() {
     assert!(e.core().beat() > beat);
     assert!(e.core().is_playing());
     h.poll();
+}
+
+#[test]
+fn complex_and_beats_warp_keep_pitch() {
+    for mode in [WarpMode::Complex, WarpMode::Beats] {
+        let hz = warp_test(mode);
+        assert!((hz - 220.0).abs() < 10.0, "{mode:?}: {hz}");
+    }
+}
+
+#[test]
+fn transpose_shifts_pitch_in_stretch_and_complex() {
+    for mode in [WarpMode::Stretch, WarpMode::Complex] {
+        let hz = warp_test_t(mode, 12.0);
+        assert!((hz - 440.0).abs() < 15.0, "{mode:?}: {hz}");
+    }
 }

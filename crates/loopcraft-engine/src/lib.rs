@@ -20,9 +20,12 @@ pub mod engine;
 pub mod state;
 
 pub use clip::RtClip;
-pub use command::{Command, DeviceRef, EngineEvent, RecordBuffer, TrackRef};
-pub use engine::{CHUNK, Core, Engine, EngineHandle, NoPlugins, PluginFactory, create};
+pub use command::{AudioRecord, Command, DeviceRef, EngineEvent, RecStart, RecTarget, RecordBuffer, TrackRef};
+pub use engine::{CHUNK, Core, Engine, EngineHandle, MAX_HOST_FRAMES, MAX_INPUTS, NoPlugins, PluginFactory, Polled, create, record_ring};
 pub use state::EngineState;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_phase1;
