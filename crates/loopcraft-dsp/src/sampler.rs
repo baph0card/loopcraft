@@ -6,7 +6,7 @@ use loopcraft_core::{SamplerParams, db_to_gain};
 use std::sync::Arc;
 
 pub(crate) const PARAMS: &[ParamInfo] =
-    &[ParamInfo::new("Volume", -40.0, 6.0, "dB"), ParamInfo::new("Attack", 0.001, 2.0, "s"), ParamInfo::new("Release", 0.005, 4.0, "s")];
+    &[ParamInfo::new("Volume", -40.0, 6.0, "dB").at("gain_db"), ParamInfo::new("Attack", 0.001, 2.0, "s").at("amp_env/attack"), ParamInfo::new("Release", 0.005, 4.0, "s").at("amp_env/release")];
 
 #[derive(Clone)]
 struct Voice {

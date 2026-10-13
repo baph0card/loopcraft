@@ -5,12 +5,12 @@ use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::{CompressorParams, db_to_gain};
 
 pub(crate) const PARAMS: &[ParamInfo] = &[
-    ParamInfo::new("Threshold", -60.0, 0.0, "dB"),
-    ParamInfo::new("Ratio", 1.0, 20.0, ":1"),
-    ParamInfo::new("Attack", 0.1, 100.0, "ms"),
-    ParamInfo::new("Release", 5.0, 1000.0, "ms"),
-    ParamInfo::new("Makeup", 0.0, 24.0, "dB"),
-    ParamInfo::new("Dry/Wet", 0.0, 1.0, ""),
+    ParamInfo::new("Threshold", -60.0, 0.0, "dB").at("threshold_db"),
+    ParamInfo::new("Ratio", 1.0, 20.0, ":1").at("ratio"),
+    ParamInfo::new("Attack", 0.1, 100.0, "ms").at("attack_ms"),
+    ParamInfo::new("Release", 5.0, 1000.0, "ms").at("release_ms"),
+    ParamInfo::new("Makeup", 0.0, 24.0, "dB").at("makeup_db"),
+    ParamInfo::new("Dry/Wet", 0.0, 1.0, "").at("dry_wet"),
 ];
 
 pub struct Compressor {

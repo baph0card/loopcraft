@@ -6,7 +6,7 @@ use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::AutoFilterParams;
 
 pub(crate) const PARAMS: &[ParamInfo] =
-    &[ParamInfo::new("Cutoff", 20.0, 18_000.0, "Hz"), ParamInfo::new("Resonance", 0.0, 0.95, ""), ParamInfo::new("LFO Amount", 0.0, 5.0, "oct")];
+    &[ParamInfo::new("Cutoff", 20.0, 18_000.0, "Hz").at("cutoff_hz"), ParamInfo::new("Resonance", 0.0, 0.95, "").at("resonance"), ParamInfo::new("LFO Amount", 0.0, 5.0, "oct").at("lfo_amount")];
 
 pub struct AutoFilter {
     p: AutoFilterParams,

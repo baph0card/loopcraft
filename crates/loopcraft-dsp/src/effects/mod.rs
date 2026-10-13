@@ -1,9 +1,14 @@
 //! Built-in audio effects.
 
 pub mod autofilter;
+pub mod character;
 pub mod compressor;
+pub mod convolution;
+pub mod creative;
 pub mod delay;
+pub mod dynamics;
 pub mod eq;
+pub mod modulation;
 pub mod reverb;
 pub mod saturator;
 pub mod utility;

@@ -9,13 +9,13 @@ use crate::{Instrument, ParamInfo, ProcessContext};
 use loopcraft_core::{SynthParams, Waveform, db_to_gain};
 
 pub(crate) const PARAMS: &[ParamInfo] = &[
-    ParamInfo::new("Cutoff", 20.0, 18_000.0, "Hz"),
-    ParamInfo::new("Resonance", 0.0, 0.95, ""),
-    ParamInfo::new("Filter Env", -4.0, 6.0, "oct"),
-    ParamInfo::new("Osc Mix", 0.0, 1.0, ""),
-    ParamInfo::new("Volume", -40.0, 6.0, "dB"),
-    ParamInfo::new("Attack", 0.001, 2.0, "s"),
-    ParamInfo::new("Release", 0.005, 4.0, "s"),
+    ParamInfo::new("Cutoff", 20.0, 18_000.0, "Hz").at("cutoff_hz"),
+    ParamInfo::new("Resonance", 0.0, 0.95, "").at("resonance"),
+    ParamInfo::new("Filter Env", -4.0, 6.0, "oct").at("filter_env_amount"),
+    ParamInfo::new("Osc Mix", 0.0, 1.0, "").at("osc_mix"),
+    ParamInfo::new("Volume", -40.0, 6.0, "dB").at("gain_db"),
+    ParamInfo::new("Attack", 0.001, 2.0, "s").at("amp_env/attack"),
+    ParamInfo::new("Release", 0.005, 4.0, "s").at("amp_env/release"),
 ];
 
 #[inline]

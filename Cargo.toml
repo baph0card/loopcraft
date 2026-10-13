@@ -42,6 +42,9 @@ libloading = "0.9"
 cpal = "0.18"
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
 anyhow = "1"
+rustfft = "6"
+symphonia = { version = "0.5", features = ["mp3", "aiff"] }
+midir = "0.10"
 
 [profile.dev]
 opt-level = 1

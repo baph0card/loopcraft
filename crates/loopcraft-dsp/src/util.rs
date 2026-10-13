@@ -239,6 +239,8 @@ impl Default for Biquad {
 pub enum BiquadKind {
     LowPass,
     HighPass,
+    /// Constant 0 dB peak-gain bandpass.
+    BandPass,
     Peak,
     LowShelf,
     HighShelf,
@@ -257,6 +259,7 @@ impl Biquad {
             BiquadKind::LowPass => ((1.0 - cw) / 2.0, 1.0 - cw, (1.0 - cw) / 2.0, 1.0 + alpha, -2.0 * cw, 1.0 - alpha),
             BiquadKind::HighPass => ((1.0 + cw) / 2.0, -(1.0 + cw), (1.0 + cw) / 2.0, 1.0 + alpha, -2.0 * cw, 1.0 - alpha),
             BiquadKind::Notch => (1.0, -2.0 * cw, 1.0, 1.0 + alpha, -2.0 * cw, 1.0 - alpha),
+            BiquadKind::BandPass => (alpha, 0.0, -alpha, 1.0 + alpha, -2.0 * cw, 1.0 - alpha),
             BiquadKind::Peak => (1.0 + alpha * a, -2.0 * cw, 1.0 - alpha * a, 1.0 + alpha / a, -2.0 * cw, 1.0 - alpha / a),
             BiquadKind::LowShelf => {
                 let s = 2.0 * a.sqrt() * alpha;
@@ -362,6 +365,128 @@ impl DelayLine {
     }
 }
 
+/// Evaluate an LFO shape at phase 0..1, returning -1..1.
+#[inline]
+pub fn lfo_shape(shape: loopcraft_core::LfoShape, phase: f64) -> f32 {
+    use loopcraft_core::LfoShape::*;
+    let p = phase.rem_euclid(1.0) as f32;
+    match shape {
+        Sine => (p * std::f32::consts::TAU).sin(),
+        Triangle => 1.0 - 4.0 * (p - 0.5).abs(),
+        Square => {
+            if p < 0.5 {
+                1.0
+            } else {
+                -1.0
+            }
+        }
+        SawUp => 2.0 * p - 1.0,
+        SawDown => 1.0 - 2.0 * p,
+    }
+}
+
+/// Free-running sine LFO in Hz.
+#[derive(Clone, Copy)]
+pub struct Lfo {
+    phase: f64,
+    inc: f64,
+}
+
+impl Lfo {
+    pub fn new(rate_hz: f32, sample_rate: f32, phase: f64) -> Self {
+        Self { phase, inc: rate_hz as f64 / sample_rate as f64 }
+    }
+    pub fn set_rate(&mut self, rate_hz: f32, sample_rate: f32) {
+        self.inc = rate_hz as f64 / sample_rate as f64;
+    }
+    #[inline]
+    pub fn next(&mut self) -> f32 {
+        let v = (self.phase * std::f64::consts::TAU).sin() as f32;
+        self.phase = (self.phase + self.inc).fract();
+        v
+    }
+    pub fn phase(&self) -> f64 {
+        self.phase
+    }
+    pub fn set_phase(&mut self, p: f64) {
+        self.phase = p.rem_euclid(1.0);
+    }
+}
+
+/// Peak envelope follower with separate attack and release, in linear units.
+#[derive(Clone, Copy)]
+pub struct EnvFollower {
+    env: f32,
+    att: f32,
+    rel: f32,
+}
+
+impl EnvFollower {
+    pub fn new(attack_ms: f32, release_ms: f32, sample_rate: f32) -> Self {
+        let mut e = Self { env: 0.0, att: 0.0, rel: 0.0 };
+        e.set(attack_ms, release_ms, sample_rate);
+        e
+    }
+    pub fn set(&mut self, attack_ms: f32, release_ms: f32, sample_rate: f32) {
+        self.att = (-1.0 / (attack_ms.max(0.01) * 0.001 * sample_rate)).exp();
+        self.rel = (-1.0 / (release_ms.max(0.1) * 0.001 * sample_rate)).exp();
+    }
+    #[inline]
+    pub fn next(&mut self, x: f32) -> f32 {
+        let a = x.abs();
+        let c = if a > self.env { self.att } else { self.rel };
+        self.env = a + (self.env - a) * c;
+        if self.env < 1e-12 {
+            self.env = 0.0;
+        }
+        self.env
+    }
+    pub fn value(&self) -> f32 {
+        self.env
+    }
+    pub fn reset(&mut self) {
+        self.env = 0.0;
+    }
+}
+
+/// Fourth-order Linkwitz-Riley crossover (two cascaded Butterworth biquads
+/// per side). Low + high sum to an allpass with flat magnitude.
+#[derive(Clone, Copy, Default)]
+pub struct Crossover {
+    lp: [Biquad; 2],
+    hp: [Biquad; 2],
+}
+
+impl Crossover {
+    pub fn new(freq: f32, sr: f32) -> Self {
+        let mut c = Self::default();
+        c.set(freq, sr);
+        c
+    }
+    pub fn set(&mut self, freq: f32, sr: f32) {
+        let q = std::f32::consts::FRAC_1_SQRT_2;
+        for b in self.lp.iter_mut() {
+            b.design(BiquadKind::LowPass, freq, q, 0.0, sr);
+        }
+        for b in self.hp.iter_mut() {
+            b.design(BiquadKind::HighPass, freq, q, 0.0, sr);
+        }
+    }
+    /// Returns (low, high).
+    #[inline]
+    pub fn split(&mut self, x: f32) -> (f32, f32) {
+        let l = { let t = self.lp[0].process(x); self.lp[1].process(t) };
+        let h = { let t = self.hp[0].process(x); self.hp[1].process(t) };
+        (l, h)
+    }
+    /// Pass through as the allpass sum, for phase-aligning other bands.
+    #[inline]
+    pub fn allpass(&mut self, x: f32) -> f32 {
+        let (l, h) = self.split(x);
+        l + h
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,6 +522,21 @@ mod tests {
         b.design(BiquadKind::Peak, 1_000.0, 1.0, 6.0, sr);
         let db = 20.0 * b.magnitude(1_000.0, sr).log10();
         assert!((db - 6.0).abs() < 0.1, "{db}");
+    }
+
+    #[test]
+    fn crossover_sums_flat() {
+        let sr = 48_000.0;
+        // Feed a sine at the crossover frequency; low+high must keep its level.
+        let mut c = Crossover::new(1_000.0, sr);
+        let mut out = Vec::new();
+        for i in 0..48_000 {
+            let x = (std::f32::consts::TAU * 1_000.0 * i as f32 / sr).sin();
+            let (l, h) = c.split(x);
+            out.push(l + h);
+        }
+        let r = crate::rms(&out[4_800..]);
+        assert!((r - 0.707).abs() < 0.02, "{r}");
     }
 
     #[test]

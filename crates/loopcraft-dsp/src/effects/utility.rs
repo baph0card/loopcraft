@@ -4,7 +4,7 @@ use crate::util::{Biquad, BiquadKind};
 use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::{UtilityParams, db_to_gain};
 
-pub(crate) const PARAMS: &[ParamInfo] = &[ParamInfo::new("Gain", -35.0, 35.0, "dB"), ParamInfo::new("Width", 0.0, 2.0, "")];
+pub(crate) const PARAMS: &[ParamInfo] = &[ParamInfo::new("Gain", -35.0, 35.0, "dB").at("gain_db"), ParamInfo::new("Width", 0.0, 2.0, "").at("width")];
 
 pub struct Utility {
     p: UtilityParams,

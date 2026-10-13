@@ -7,7 +7,7 @@ use loopcraft_core::{DrumRackParams, DrumVoice, PadSource, db_to_gain};
 use std::f32::consts::TAU;
 use std::sync::Arc;
 
-pub(crate) const PARAMS: &[ParamInfo] = &[ParamInfo::new("Volume", -40.0, 6.0, "dB")];
+pub(crate) const PARAMS: &[ParamInfo] = &[ParamInfo::new("Volume", -40.0, 6.0, "dB").at("gain_db")];
 
 /// One-shot synthesized drum voice.
 struct DrumSynth {

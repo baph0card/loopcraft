@@ -6,10 +6,10 @@ use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::DelayParams;
 
 pub(crate) const PARAMS: &[ParamInfo] = &[
-    ParamInfo::new("Time (beats)", 0.0625, 4.0, "beats"),
-    ParamInfo::new("Feedback", 0.0, 0.98, ""),
-    ParamInfo::new("Filter", 200.0, 18_000.0, "Hz"),
-    ParamInfo::new("Dry/Wet", 0.0, 1.0, ""),
+    ParamInfo::new("Time (beats)", 0.0625, 4.0, "beats").at("time_beats"),
+    ParamInfo::new("Feedback", 0.0, 0.98, "").at("feedback"),
+    ParamInfo::new("Filter", 200.0, 18_000.0, "Hz").at("filter_hz"),
+    ParamInfo::new("Dry/Wet", 0.0, 1.0, "").at("dry_wet"),
 ];
 
 const MAX_SECONDS: f32 = 4.0;

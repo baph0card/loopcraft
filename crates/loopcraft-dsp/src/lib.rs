@@ -6,13 +6,18 @@
 
 pub mod drums;
 pub mod effects;
+pub mod fm;
+pub mod midi;
+pub mod multisampler;
+pub mod rack;
 pub mod sampler;
 pub mod specs;
 pub mod stretch;
 pub mod synth;
 pub mod util;
+pub mod wavetable;
 
-use loopcraft_core::DeviceSpec;
+use loopcraft_core::{DeviceSpec, PluginRef};
 use std::sync::Arc;
 
 /// Per-block information devices may need (tempo-synced delays, LFOs).
@@ -38,11 +43,18 @@ pub struct ParamInfo {
     pub min: f32,
     pub max: f32,
     pub unit: &'static str,
+    /// JSON-pointer path of this parameter inside the device's saved params
+    /// (e.g. `amp_env/attack`). Lets the UI read and write the saved spec
+    /// with the same index the running device uses.
+    pub path: &'static str,
 }
 
 impl ParamInfo {
     pub const fn new(name: &'static str, min: f32, max: f32, unit: &'static str) -> Self {
-        Self { name, min, max, unit }
+        Self { name, min, max, unit, path: "" }
+    }
+    pub const fn at(self, path: &'static str) -> Self {
+        Self { path, ..self }
     }
     /// Map a normalized 0..1 automation value into this parameter's range.
     pub fn denormalize(&self, v: f32) -> f32 {
@@ -77,6 +89,11 @@ pub trait Effect: Send {
     fn sidechain(&mut self, _left: &[f32], _right: &[f32]) {}
     fn wants_sidechain(&self) -> Option<usize> {
         None
+    }
+    /// Samples of delay this effect adds (lookahead, FFT blocks). The
+    /// engine compensates so everything stays aligned.
+    fn latency(&self) -> usize {
+        0
     }
     fn name(&self) -> &str;
 }
@@ -148,26 +165,90 @@ impl SampleLoader for NoSamples {
 
 pub enum Device {
     Instrument(Box<dyn Instrument>),
+    MidiEffect(Box<dyn midi::MidiEffect>),
     Effect(Box<dyn Effect>),
 }
 
-/// Build a built-in device from its saved description. Plugins are handled by
-/// `loopcraft-plugin` and return `None` here.
+impl Device {
+    pub fn into_instrument(self) -> Option<Box<dyn Instrument>> {
+        if let Device::Instrument(i) = self { Some(i) } else { None }
+    }
+    pub fn into_effect(self) -> Option<Box<dyn Effect>> {
+        if let Device::Effect(e) = self { Some(e) } else { None }
+    }
+    pub fn into_midi_effect(self) -> Option<Box<dyn midi::MidiEffect>> {
+        if let Device::MidiEffect(m) = self { Some(m) } else { None }
+    }
+}
+
+/// Build a built-in device from its saved description. Plugins return
+/// `None`; use [`build_device_with`] to supply a plugin host.
 pub fn build_device(spec: &DeviceSpec, sample_rate: f32, loader: &dyn SampleLoader) -> Option<Device> {
+    build_device_with(spec, sample_rate, loader, &|_| None)
+}
+
+/// Build any device, delegating third-party plugins (including ones nested
+/// inside racks) to `plugins`.
+pub fn build_device_with(spec: &DeviceSpec, sr: f32, loader: &dyn SampleLoader, plugins: &dyn Fn(&PluginRef) -> Option<Device>) -> Option<Device> {
     use effects::*;
-    Some(match spec {
-        DeviceSpec::PolySynth(p) => Device::Instrument(Box::new(synth::PolySynth::new(p.clone(), sample_rate))),
-        DeviceSpec::Sampler(p) => Device::Instrument(Box::new(sampler::Sampler::new(p.clone(), loader.load(&p.file), sample_rate))),
-        DeviceSpec::DrumRack(p) => Device::Instrument(Box::new(drums::DrumRack::new(p, sample_rate, loader))),
-        DeviceSpec::Eq(p) => Device::Effect(Box::new(eq::ParametricEq::new(p.clone(), sample_rate))),
-        DeviceSpec::Compressor(p) => Device::Effect(Box::new(compressor::Compressor::new(p.clone(), sample_rate))),
-        DeviceSpec::Delay(p) => Device::Effect(Box::new(delay::Delay::new(p.clone(), sample_rate))),
-        DeviceSpec::Reverb(p) => Device::Effect(Box::new(reverb::Reverb::new(p.clone(), sample_rate))),
-        DeviceSpec::Saturator(p) => Device::Effect(Box::new(saturator::Saturator::new(p.clone()))),
-        DeviceSpec::Utility(p) => Device::Effect(Box::new(utility::Utility::new(p.clone(), sample_rate))),
-        DeviceSpec::AutoFilter(p) => Device::Effect(Box::new(autofilter::AutoFilter::new(p.clone(), sample_rate))),
-        DeviceSpec::Plugin(_) => return None,
-    })
+    let fx = |e: Box<dyn Effect>| Some(Device::Effect(e));
+    let inst = |i: Box<dyn Instrument>| Some(Device::Instrument(i));
+    match spec {
+        DeviceSpec::PolySynth(p) => inst(Box::new(synth::PolySynth::new(p.clone(), sr))),
+        DeviceSpec::Wavetable(p) => inst(Box::new(wavetable::Wavetable::new(p.clone(), sr))),
+        DeviceSpec::FmSynth(p) => inst(Box::new(fm::FmSynth::new(p.clone(), sr))),
+        DeviceSpec::Sampler(p) => inst(Box::new(sampler::Sampler::new(p.clone(), loader.load(&p.file), sr))),
+        DeviceSpec::MultiSampler(p) => inst(Box::new(multisampler::MultiSampler::new(p.clone(), sr, loader))),
+        DeviceSpec::DrumRack(p) => inst(Box::new(drums::DrumRack::new(p, sr, loader))),
+        DeviceSpec::InstrumentRack(p) => inst(Box::new(rack::InstrumentRack::new(
+            p,
+            |d| build_device_with(d, sr, loader, plugins).and_then(Device::into_instrument),
+            |d| build_device_with(d, sr, loader, plugins).and_then(Device::into_effect),
+        ))),
+        DeviceSpec::Arpeggiator(_)
+        | DeviceSpec::Chord(_)
+        | DeviceSpec::Scale(_)
+        | DeviceSpec::RandomNote(_)
+        | DeviceSpec::NoteLength(_)
+        | DeviceSpec::Velocity(_)
+        | DeviceSpec::Pitch(_) => midi::build_midi_effect(spec).map(Device::MidiEffect),
+        DeviceSpec::Eq(p) => fx(Box::new(eq::ParametricEq::new(p.clone(), sr))),
+        DeviceSpec::Compressor(p) => fx(Box::new(compressor::Compressor::new(p.clone(), sr))),
+        DeviceSpec::GlueCompressor(p) => fx(Box::new(dynamics::GlueCompressor::new(p.clone(), sr))),
+        DeviceSpec::Limiter(p) => fx(Box::new(dynamics::Limiter::new(p.clone(), sr))),
+        DeviceSpec::Gate(p) => fx(Box::new(dynamics::Gate::new(p.clone(), sr))),
+        DeviceSpec::MultibandDynamics(p) => fx(Box::new(dynamics::Multiband::new(p.clone(), sr))),
+        DeviceSpec::Delay(p) => fx(Box::new(delay::Delay::new(p.clone(), sr))),
+        DeviceSpec::Reverb(p) => fx(Box::new(reverb::Reverb::new(p.clone(), sr))),
+        DeviceSpec::ConvolutionReverb(p) => {
+            let ir = if p.ir_file.is_empty() { None } else { loader.load(&p.ir_file) };
+            fx(Box::new(convolution::Convolution::new(p.clone(), ir, sr)))
+        }
+        DeviceSpec::Saturator(p) => fx(Box::new(saturator::Saturator::new(p.clone()))),
+        DeviceSpec::DrumBuss(p) => fx(Box::new(character::DrumBuss::new(p.clone(), sr))),
+        DeviceSpec::Amp(p) => fx(Box::new(character::Amp::new(p.clone(), sr))),
+        DeviceSpec::Redux(p) => fx(Box::new(modulation::Redux::new(p.clone()))),
+        DeviceSpec::Chorus(p) => fx(Box::new(modulation::Chorus::new(p.clone(), sr))),
+        DeviceSpec::Flanger(p) => fx(Box::new(modulation::Flanger::new(p.clone(), sr))),
+        DeviceSpec::Phaser(p) => fx(Box::new(modulation::Phaser::new(p.clone(), sr))),
+        DeviceSpec::AutoPan(p) => fx(Box::new(modulation::AutoPan::new(p.clone(), sr))),
+        DeviceSpec::Utility(p) => fx(Box::new(utility::Utility::new(p.clone(), sr))),
+        DeviceSpec::AutoFilter(p) => fx(Box::new(autofilter::AutoFilter::new(p.clone(), sr))),
+        DeviceSpec::BeatRepeat(p) => fx(Box::new(creative::BeatRepeat::new(p.clone(), sr))),
+        DeviceSpec::GrainDelay(p) => fx(Box::new(creative::GrainDelay::new(p.clone(), sr))),
+        DeviceSpec::Vocoder(p) => fx(Box::new(creative::Vocoder::new(p.clone(), sr))),
+        DeviceSpec::AudioRack(p) => fx(Box::new(rack::AudioRack::new(p, |d| build_device_with(d, sr, loader, plugins).and_then(Device::into_effect)))),
+        DeviceSpec::Plugin(p) => plugins(p),
+    }
+}
+
+/// Parameter table of a running device.
+pub fn device_params(d: &Device) -> &'static [ParamInfo] {
+    match d {
+        Device::Instrument(i) => i.params(),
+        Device::MidiEffect(m) => m.params(),
+        Device::Effect(e) => e.params(),
+    }
 }
 
 /// Peak and RMS of a block, for meters and tests.

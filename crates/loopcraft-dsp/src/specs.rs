@@ -1,171 +1,121 @@
-//! Reading and writing device parameters on the saved `DeviceSpec`, using
-//! the same indices the running devices expose. The UI edits the spec (so
-//! the project saves correctly) and sends the same index/value to the
-//! engine, so both always agree.
+//! Reading and writing device parameters on the saved `DeviceSpec`.
+//!
+//! Every [`ParamInfo`] carries a JSON-pointer `path` into its device's
+//! saved parameters, so the UI and the running device always agree on
+//! what parameter N means, with one table per device as the single source
+//! of truth. These helpers are for the UI thread (they go through serde).
 
-use crate::ParamInfo;
+use crate::{NoSamples, ParamInfo, build_device, device_params};
 use loopcraft_core::DeviceSpec;
+use serde_json::Value;
 
-/// Parameter list for a spec. Builds nothing; cheap to call every frame.
+/// Parameter table for a saved device. Builds the device once to read its
+/// table, which is cheap for everything except very large racks; callers
+/// that redraw every frame should cache it.
 pub fn param_infos(spec: &DeviceSpec) -> &'static [ParamInfo] {
-    use crate::effects::*;
     match spec {
-        DeviceSpec::PolySynth(_) => crate::synth::PARAMS,
-        DeviceSpec::Sampler(_) => crate::sampler::PARAMS,
-        DeviceSpec::DrumRack(_) => crate::drums::PARAMS,
-        // Only the bands that exist (the trailing Output param is index 24).
-        DeviceSpec::Eq(p) => &eq::PARAMS[..(p.bands.len().min(8) * 3)],
-        DeviceSpec::Compressor(_) => compressor::PARAMS,
-        DeviceSpec::Delay(_) => delay::PARAMS,
-        DeviceSpec::Reverb(_) => reverb::PARAMS,
-        DeviceSpec::Saturator(_) => saturator::PARAMS,
-        DeviceSpec::Utility(_) => utility::PARAMS,
-        DeviceSpec::AutoFilter(_) => autofilter::PARAMS,
         DeviceSpec::Plugin(_) => &[],
+        DeviceSpec::InstrumentRack(r) | DeviceSpec::AudioRack(r) => &crate::rack::MACRO_PARAMS[..r.macros.len().min(8)],
+        DeviceSpec::ConvolutionReverb(_) => crate::effects::convolution::PARAMS,
+        // Building a Drum Rack or Multi Sampler would touch sample loading; use the static tables.
+        DeviceSpec::DrumRack(_) => crate::drums::PARAMS,
+        DeviceSpec::MultiSampler(_) => crate::multisampler::PARAMS,
+        DeviceSpec::Sampler(_) => crate::sampler::PARAMS,
+        other => build_device(other, 48_000.0, &NoSamples).as_ref().map(device_params).unwrap_or(&[]),
     }
 }
 
-/// Current value of parameter `i` (natural units).
-pub fn get_param(spec: &DeviceSpec, i: usize) -> f32 {
-    match spec {
-        DeviceSpec::PolySynth(p) => {
-            [p.cutoff_hz, p.resonance, p.filter_env_amount, p.osc_mix, p.gain_db, p.amp_env.attack, p.amp_env.release].get(i).copied().unwrap_or(0.0)
+fn inner(v: &mut Value) -> Option<&mut Value> {
+    v.as_object_mut()?.values_mut().next()
+}
+
+/// Current value of parameter `i` (natural units), or `None` if the device
+/// has no such parameter (e.g. an EQ band that doesn't exist).
+pub fn get_param(spec: &DeviceSpec, i: usize) -> Option<f32> {
+    let info = param_infos(spec).get(i)?;
+    let mut v = serde_json::to_value(spec).ok()?;
+    let p = inner(&mut v)?.pointer(&format!("/{}", info.path))?;
+    p.as_f64().map(|x| x as f32)
+}
+
+/// Write parameter `i` back into the saved spec. Integer fields are rounded.
+pub fn set_param(spec: &mut DeviceSpec, i: usize, value: f32) -> bool {
+    let Some(info) = param_infos(spec).get(i).copied() else { return false };
+    let Ok(mut v) = serde_json::to_value(&*spec) else { return false };
+    let Some(slot) = inner(&mut v).and_then(|x| x.pointer_mut(&format!("/{}", info.path))) else { return false };
+    let value = value.clamp(info.min.min(info.max), info.max.max(info.min));
+    *slot = if slot.is_u64() {
+        Value::from(value.round().max(0.0) as u64)
+    } else if slot.is_i64() {
+        Value::from(value.round() as i64)
+    } else {
+        Value::from(value as f64)
+    };
+    match serde_json::from_value::<DeviceSpec>(v) {
+        Ok(new) => {
+            *spec = new;
+            true
         }
-        DeviceSpec::Sampler(p) => [p.gain_db, p.amp_env.attack, p.amp_env.release].get(i).copied().unwrap_or(0.0),
-        DeviceSpec::DrumRack(p) => {
-            if i == 0 {
-                p.gain_db
-            } else {
-                0.0
-            }
-        }
-        DeviceSpec::Eq(p) => {
-            if i == 24 {
-                return p.output_db;
-            }
-            p.bands.get(i / 3).map(|b| [b.freq_hz, b.gain_db, b.q][i % 3]).unwrap_or(0.0)
-        }
-        DeviceSpec::Compressor(p) => [p.threshold_db, p.ratio, p.attack_ms, p.release_ms, p.makeup_db, p.dry_wet].get(i).copied().unwrap_or(0.0),
-        DeviceSpec::Delay(p) => [p.time_beats as f32, p.feedback, p.filter_hz, p.dry_wet].get(i).copied().unwrap_or(0.0),
-        DeviceSpec::Reverb(p) => [p.size, p.damping, p.width, p.dry_wet].get(i).copied().unwrap_or(0.0),
-        DeviceSpec::Saturator(p) => [p.drive_db, p.output_db, p.dry_wet].get(i).copied().unwrap_or(0.0),
-        DeviceSpec::Utility(p) => [p.gain_db, p.width].get(i).copied().unwrap_or(0.0),
-        DeviceSpec::AutoFilter(p) => [p.cutoff_hz, p.resonance, p.lfo_amount].get(i).copied().unwrap_or(0.0),
-        DeviceSpec::Plugin(_) => 0.0,
+        Err(_) => false,
     }
 }
 
-/// Write parameter `i` back into the spec.
-pub fn set_param(spec: &mut DeviceSpec, i: usize, v: f32) {
-    match spec {
-        DeviceSpec::PolySynth(p) => match i {
-            0 => p.cutoff_hz = v,
-            1 => p.resonance = v,
-            2 => p.filter_env_amount = v,
-            3 => p.osc_mix = v,
-            4 => p.gain_db = v,
-            5 => p.amp_env.attack = v,
-            6 => p.amp_env.release = v,
-            _ => {}
-        },
-        DeviceSpec::Sampler(p) => match i {
-            0 => p.gain_db = v,
-            1 => p.amp_env.attack = v,
-            2 => p.amp_env.release = v,
-            _ => {}
-        },
-        DeviceSpec::DrumRack(p) => {
-            if i == 0 {
-                p.gain_db = v;
+/// True if every parameter of every built-in device resolves in its spec.
+pub fn check_catalog() -> Result<(), String> {
+    for spec in DeviceSpec::catalog() {
+        let n = param_infos(&spec).len();
+        for i in 0..n {
+            let info = param_infos(&spec)[i];
+            // EQ tables list 8 bands; default EQs have 4, so skip missing bands.
+            if matches!(spec, DeviceSpec::Eq(_)) && info.path.starts_with("bands/") && get_param(&spec, i).is_none() {
+                continue;
+            }
+            if get_param(&spec, i).is_none() {
+                return Err(format!("{} param {} ('{}') has no value at '{}'", spec.name(), i, info.name, info.path));
             }
         }
-        DeviceSpec::Eq(p) => {
-            if i == 24 {
-                p.output_db = v;
-            } else if let Some(b) = p.bands.get_mut(i / 3) {
-                match i % 3 {
-                    0 => b.freq_hz = v,
-                    1 => b.gain_db = v,
-                    _ => b.q = v,
-                }
+        // Built devices must expose the same table as the spec helpers.
+        if let Some(d) = build_device(&spec, 48_000.0, &NoSamples) {
+            let live = device_params(&d);
+            if live.len() != n {
+                return Err(format!("{}: running device has {} params, spec table has {n}", spec.name(), live.len()));
             }
         }
-        DeviceSpec::Compressor(p) => match i {
-            0 => p.threshold_db = v,
-            1 => p.ratio = v,
-            2 => p.attack_ms = v,
-            3 => p.release_ms = v,
-            4 => p.makeup_db = v,
-            5 => p.dry_wet = v,
-            _ => {}
-        },
-        DeviceSpec::Delay(p) => match i {
-            0 => p.time_beats = v as f64,
-            1 => p.feedback = v,
-            2 => p.filter_hz = v,
-            3 => p.dry_wet = v,
-            _ => {}
-        },
-        DeviceSpec::Reverb(p) => match i {
-            0 => p.size = v,
-            1 => p.damping = v,
-            2 => p.width = v,
-            3 => p.dry_wet = v,
-            _ => {}
-        },
-        DeviceSpec::Saturator(p) => match i {
-            0 => p.drive_db = v,
-            1 => p.output_db = v,
-            2 => p.dry_wet = v,
-            _ => {}
-        },
-        DeviceSpec::Utility(p) => match i {
-            0 => p.gain_db = v,
-            1 => p.width = v,
-            _ => {}
-        },
-        DeviceSpec::AutoFilter(p) => match i {
-            0 => p.cutoff_hz = v,
-            1 => p.resonance = v,
-            2 => p.lfo_amount = v,
-            _ => {}
-        },
-        DeviceSpec::Plugin(_) => {}
     }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Device, NoSamples, build_device};
+    use loopcraft_core::*;
 
-    /// The spec helpers must expose exactly the same parameter tables as
-    /// the running devices, or automation and UI would target the wrong knob.
     #[test]
-    fn spec_tables_match_devices() {
-        let specs = vec![
-            DeviceSpec::PolySynth(Default::default()),
-            DeviceSpec::Sampler(Default::default()),
-            DeviceSpec::DrumRack(Default::default()),
-            DeviceSpec::Compressor(Default::default()),
-            DeviceSpec::Delay(Default::default()),
-            DeviceSpec::Reverb(Default::default()),
-            DeviceSpec::Saturator(Default::default()),
-            DeviceSpec::Utility(Default::default()),
-            DeviceSpec::AutoFilter(Default::default()),
-        ];
-        for mut spec in specs {
-            let dev = build_device(&spec, 48_000.0, &NoSamples).unwrap();
-            let live = match &dev {
-                Device::Instrument(i) => i.params(),
-                Device::Effect(e) => e.params(),
-            };
-            assert_eq!(live.len(), param_infos(&spec).len(), "{}", spec.name());
-            for (i, info) in param_infos(&spec).iter().enumerate() {
+    fn every_param_path_resolves() {
+        check_catalog().unwrap();
+    }
+
+    #[test]
+    fn set_and_get_roundtrip() {
+        for mut spec in DeviceSpec::catalog() {
+            for i in 0..param_infos(&spec).len() {
+                let info = param_infos(&spec)[i];
+                if get_param(&spec, i).is_none() {
+                    continue;
+                }
                 let mid = (info.min + info.max) / 2.0;
-                set_param(&mut spec, i, mid);
-                assert!((get_param(&spec, i) - mid).abs() < 1e-3, "{} param {}", spec.name(), info.name);
+                assert!(set_param(&mut spec, i, mid), "{} {}", spec.name(), info.name);
+                let got = get_param(&spec, i).unwrap();
+                assert!((got - mid).abs() <= 0.5 + 1e-3, "{} {}: {got} vs {mid}", spec.name(), info.name);
             }
         }
+    }
+
+    #[test]
+    fn integer_fields_stay_integers() {
+        let mut s = DeviceSpec::Scale(ScaleParams::default());
+        assert!(set_param(&mut s, 0, 4.4));
+        let DeviceSpec::Scale(p) = s else { panic!() };
+        assert_eq!(p.root, 4);
     }
 }

@@ -3,6 +3,7 @@
 //! This is plain data. The engine builds its real-time structures from it on
 //! a non-audio thread, so nothing here needs to be lock-free.
 
+use crate::devices::*;
 use crate::time::{Beats, Quantization, TimeSignature};
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +25,20 @@ pub struct Project {
     /// Arrangement loop brace (start, end) in beats.
     pub loop_region: Option<(Beats, Beats)>,
     pub metronome: bool,
+    /// Crossfader position, -1 (A) .. 1 (B).
+    pub crossfader: f32,
+    /// Cue (pre-listen) output level in dB.
+    pub cue_volume_db: f32,
+    /// Bars of metronome count-in before recording starts (0 = off).
+    pub count_in_bars: u32,
+    /// Groove pool: named swing/timing templates clips can reference.
+    pub grooves: Vec<Groove>,
+    /// MIDI CC / note and computer-key mappings to parameters and actions.
+    pub mappings: Vec<Mapping>,
+    /// Arrangement tempo automation (beat, bpm). Empty = constant tempo.
+    pub tempo_automation: Vec<(Beats, f64)>,
+    /// Arrangement locators (beat, name).
+    pub locators: Vec<(Beats, String)>,
 }
 
 impl Default for Project {
@@ -40,6 +55,13 @@ impl Default for Project {
             scenes: Vec::new(),
             loop_region: None,
             metronome: false,
+            crossfader: 0.0,
+            cue_volume_db: 0.0,
+            count_in_bars: 0,
+            grooves: Vec::new(),
+            mappings: Vec::new(),
+            tempo_automation: Vec::new(),
+            locators: Vec::new(),
         }
     }
 }
@@ -83,11 +105,55 @@ impl Project {
             let i = self.scenes.len() + 1;
             self.scenes.push(Scene { name: format!("{i}"), ..Default::default() });
         }
+        let n_tracks = self.tracks.len();
+        for i in 0..n_tracks {
+            // A track may only belong to an earlier group track (no cycles).
+            let ok = self.tracks[i].group.is_some_and(|g| g < i && self.tracks[g].kind == TrackKind::Group);
+            if !ok {
+                self.tracks[i].group = None;
+            }
+        }
         for t in self.tracks.iter_mut() {
             t.sends.resize(n_returns, -70.0);
             t.slots.resize(n_scenes, None);
         }
+        for r in self.returns.iter_mut() {
+            r.sends.resize(n_returns, -70.0);
+        }
         self
+    }
+
+    /// Indices of the tracks whose output feeds group track `g`, directly.
+    pub fn group_children(&self, g: usize) -> impl Iterator<Item = usize> + '_ {
+        self.tracks.iter().enumerate().filter(move |(_, t)| t.group == Some(g)).map(|(i, _)| i)
+    }
+
+    /// True when `track` sits (directly or indirectly) inside group `g`.
+    pub fn is_inside(&self, track: usize, g: usize) -> bool {
+        let mut cur = self.tracks.get(track).and_then(|t| t.group);
+        while let Some(p) = cur {
+            if p == g {
+                return true;
+            }
+            cur = self.tracks.get(p).and_then(|t| t.group);
+        }
+        false
+    }
+
+    /// Nesting depth (0 = top level).
+    pub fn depth(&self, track: usize) -> usize {
+        let mut d = 0;
+        let mut cur = self.tracks.get(track).and_then(|t| t.group);
+        while let Some(p) = cur {
+            d += 1;
+            cur = self.tracks.get(p).and_then(|t| t.group);
+        }
+        d
+    }
+
+    /// Tempo at `beat`, following tempo automation when present.
+    pub fn tempo_at(&self, beat: Beats) -> f64 {
+        tempo_at(&self.tempo_automation, self.tempo, beat)
     }
 
     pub fn add_track(&mut self, track: Track) -> usize {
@@ -119,12 +185,64 @@ impl Project {
     }
 }
 
+/// Step-wise tempo automation lookup (each point holds until the next).
+pub fn tempo_at(points: &[(Beats, f64)], default: f64, beat: Beats) -> f64 {
+    let mut t = points.first().map(|p| p.1).unwrap_or(default);
+    for &(b, bpm) in points {
+        if b <= beat + 1e-9 {
+            t = bpm;
+        } else {
+            break;
+        }
+    }
+    t
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrackKind {
     Midi,
     Audio,
+    /// Sums the tracks that name it as their `group`.
+    Group,
     Return,
     Master,
+}
+
+/// Where an audio track's live input comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InputSource {
+    None,
+    /// Channel pair `n` (0 = inputs 1/2) of the audio interface.
+    Stereo(u8),
+    /// A single input channel, duplicated to both sides.
+    Mono(u8),
+    /// Another track's post-fader output (resampling).
+    Track(usize),
+    /// The master output (resampling).
+    Master,
+}
+
+impl Default for InputSource {
+    fn default() -> Self {
+        InputSource::Stereo(0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Monitor {
+    /// Hear the input when the track is armed and not playing a clip.
+    #[default]
+    Auto,
+    In,
+    Off,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum CrossfadeAssign {
+    #[default]
+    None,
+    A,
+    B,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +263,20 @@ pub struct Track {
     /// Arrangement-view clips on the timeline.
     pub arrangement: Vec<ArrangementClip>,
     pub automation: Vec<AutomationLane>,
+    /// MIDI effects ahead of the instrument (MIDI tracks only).
+    pub midi_effects: Vec<DeviceSpec>,
+    /// Index of the group track this track feeds, if any.
+    pub group: Option<usize>,
+    /// UI: group folded closed.
+    pub folded: bool,
+    pub input: InputSource,
+    pub monitor: Monitor,
+    pub armed: bool,
+    pub crossfade: CrossfadeAssign,
+    /// Effects (by index in `effects`) that are switched off.
+    pub bypassed: Vec<usize>,
+    /// Instrument switched off.
+    pub instrument_bypassed: bool,
 }
 
 impl Default for Track {
@@ -166,7 +298,34 @@ impl Track {
             slots: Vec::new(),
             arrangement: Vec::new(),
             automation: Vec::new(),
+            midi_effects: Vec::new(),
+            group: None,
+            folded: false,
+            input: InputSource::default(),
+            monitor: Monitor::default(),
+            armed: false,
+            crossfade: CrossfadeAssign::None,
+            bypassed: Vec::new(),
+            instrument_bypassed: false,
         }
+    }
+
+    pub fn group(name: impl Into<String>) -> Self {
+        Self::new(name, TrackKind::Group)
+    }
+
+    pub fn with_midi_effect(mut self, fx: DeviceSpec) -> Self {
+        self.midi_effects.push(fx);
+        self
+    }
+
+    pub fn in_group(mut self, g: usize) -> Self {
+        self.group = Some(g);
+        self
+    }
+
+    pub fn is_effect_bypassed(&self, i: usize) -> bool {
+        self.bypassed.contains(&i)
     }
 
     pub fn midi(name: impl Into<String>, instrument: DeviceSpec) -> Self {
@@ -211,6 +370,58 @@ pub struct Scene {
     /// Launching the scene changes the song tempo when set.
     pub tempo: Option<f64>,
     pub time_signature: Option<TimeSignature>,
+    /// Launch another scene automatically after a while.
+    pub follow: Option<FollowAction>,
+    pub color: Option<[u8; 3]>,
+}
+
+/// What happens when a follow action fires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum FollowKind {
+    /// Keep playing; nothing happens.
+    #[default]
+    NoAction,
+    Stop,
+    /// Restart this clip (or scene).
+    Again,
+    Previous,
+    Next,
+    First,
+    Last,
+    /// Any clip in the group, including this one.
+    Any,
+    /// Any clip in the group except this one.
+    Other,
+    /// A specific slot (clips) or scene index (scenes).
+    Jump(usize),
+}
+
+/// Two candidate actions chosen at random by `chance_a` after `after` beats.
+/// For clips, "the group" is the run of filled slots around the clip,
+/// bounded by empty slots.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FollowAction {
+    pub after: Beats,
+    pub action_a: FollowKind,
+    pub action_b: FollowKind,
+    /// Probability of `action_a` (0..1); `action_b` gets the rest.
+    pub chance_a: f32,
+    /// Fire after the clip's own length (and every multiple of it) instead of `after`.
+    pub linked: bool,
+    pub enabled: bool,
+}
+
+impl Default for FollowAction {
+    fn default() -> Self {
+        Self { after: 4.0, action_a: FollowKind::Next, action_b: FollowKind::NoAction, chance_a: 1.0, linked: false, enabled: true }
+    }
+}
+
+impl FollowAction {
+    pub fn next_after(beats: Beats) -> Self {
+        Self { after: beats, ..Default::default() }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -236,6 +447,14 @@ pub struct Clip {
     /// Per-clip launch quantization; `None` follows the global setting.
     pub quantization: Option<Quantization>,
     pub content: ClipContent,
+    pub follow: Option<FollowAction>,
+    /// Where the loop starts inside the clip (beats). Playback begins at 0
+    /// and, when looping, wraps from `length` back to `loop_start`.
+    pub loop_start: Beats,
+    /// Index into the project's groove pool.
+    pub groove: Option<usize>,
+    /// Launch velocity sensitivity (0 = ignore launch velocity).
+    pub velocity_amount: f32,
 }
 
 impl Default for Clip {
@@ -248,6 +467,10 @@ impl Default for Clip {
             launch_mode: LaunchMode::Trigger,
             quantization: None,
             content: ClipContent::Midi { notes: Vec::new() },
+            follow: None,
+            loop_start: 0.0,
+            groove: None,
+            velocity_amount: 0.0,
         }
     }
 }
@@ -299,9 +522,22 @@ pub enum WarpMode {
     Off,
     /// Speed and pitch follow tempo together, like a turntable.
     Repitch,
-    /// Granular time-stretch: tempo changes, pitch stays.
+    /// WSOLA time-stretch: tempo changes, pitch stays. Good all-rounder.
     #[default]
     Stretch,
+    /// Slices at transients and plays each slice at its own speed: tight
+    /// drums and percussive loops.
+    Beats,
+    /// Phase-vocoder stretch for full mixes and tonal material.
+    Complex,
+}
+
+/// Pins a beat position in the clip to a position (seconds) in the file.
+/// Between markers the file is stretched linearly.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct WarpMarker {
+    pub beat: Beats,
+    pub seconds: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,12 +551,141 @@ pub struct AudioClip {
     /// Where in the file (in beats at `original_bpm`) the clip starts.
     pub start_offset: Beats,
     pub gain_db: f32,
+    /// Pitch shift in semitones (Stretch / Beats / Complex modes; Repitch
+    /// folds it into the playback rate).
+    pub transpose: f32,
+    /// When non-empty these define the beat-to-file mapping and override
+    /// `original_bpm` / `start_offset`.
+    pub warp_markers: Vec<WarpMarker>,
+    pub reverse: bool,
+    /// Fade in / out lengths in beats.
+    pub fade_in: Beats,
+    pub fade_out: Beats,
 }
 
 impl Default for AudioClip {
     fn default() -> Self {
-        Self { file: String::new(), warp: WarpMode::Stretch, original_bpm: 120.0, start_offset: 0.0, gain_db: 0.0 }
+        Self {
+            file: String::new(),
+            warp: WarpMode::Stretch,
+            original_bpm: 120.0,
+            start_offset: 0.0,
+            gain_db: 0.0,
+            transpose: 0.0,
+            warp_markers: Vec::new(),
+            reverse: false,
+            fade_in: 0.0,
+            fade_out: 0.0,
+        }
     }
+}
+
+impl AudioClip {
+    /// Map a clip-local beat to a file position in seconds.
+    pub fn seconds_at(&self, beat: Beats) -> f64 {
+        let m = &self.warp_markers;
+        if m.len() >= 2 {
+            let i = m.windows(2).position(|w| beat < w[1].beat).unwrap_or(m.len() - 2);
+            let (a, b) = (m[i], m[i + 1]);
+            let span = (b.beat - a.beat).max(1e-9);
+            return a.seconds + (beat - a.beat) / span * (b.seconds - a.seconds);
+        }
+        if m.len() == 1 {
+            return m[0].seconds + (beat - m[0].beat) * 60.0 / self.original_bpm.max(1.0);
+        }
+        (self.start_offset + beat) * 60.0 / self.original_bpm.max(1.0)
+    }
+
+    /// Local playback rate (file seconds per beat) at a beat.
+    pub fn seconds_per_beat_at(&self, beat: Beats) -> f64 {
+        let m = &self.warp_markers;
+        if m.len() >= 2 {
+            let i = m.windows(2).position(|w| beat < w[1].beat).unwrap_or(m.len() - 2);
+            let (a, b) = (m[i], m[i + 1]);
+            return (b.seconds - a.seconds) / (b.beat - a.beat).max(1e-9);
+        }
+        60.0 / self.original_bpm.max(1.0)
+    }
+}
+
+/// A groove template: per-sixteenth timing (fraction of a sixteenth) and
+/// velocity offsets, repeating every `steps.len()` sixteenths.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Groove {
+    pub name: String,
+    pub timing: Vec<f32>,
+    pub velocity: Vec<f32>,
+    /// Global amount 0..1.3.
+    pub amount: f32,
+}
+
+impl Default for Groove {
+    fn default() -> Self {
+        Self::swing("Swing 16ths 58%", 0.58)
+    }
+}
+
+impl Groove {
+    /// Classic MPC-style swing: every other 16th is late. `ratio` 0.5 = straight.
+    pub fn swing(name: &str, ratio: f32) -> Self {
+        let late = (ratio - 0.5) * 2.0;
+        Self { name: name.into(), timing: vec![0.0, late], velocity: vec![0.0, -0.1], amount: 1.0 }
+    }
+
+    /// Offset (beats) and velocity multiplier for a note starting at `beat`.
+    pub fn apply(&self, beat: Beats) -> (Beats, f32) {
+        if self.timing.is_empty() {
+            return (0.0, 1.0);
+        }
+        let step = (beat * 4.0).round();
+        if (beat * 4.0 - step).abs() > 0.2 {
+            return (0.0, 1.0);
+        }
+        let i = (step as i64).rem_euclid(self.timing.len() as i64) as usize;
+        let t = self.timing[i] * self.amount * 0.25;
+        let v = 1.0 + self.velocity.get(i).copied().unwrap_or(0.0) * self.amount;
+        (t as f64, v.max(0.0))
+    }
+}
+
+/// What a controller mapping drives.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum MappingTarget {
+    Volume(usize),
+    Pan(usize),
+    Send { track: usize, ret: usize },
+    DeviceParam { track: usize, device: usize, param: usize },
+    InstrumentParam { track: usize, param: usize },
+    Tempo,
+    Crossfader,
+    LaunchClip { track: usize, slot: usize },
+    LaunchScene(usize),
+    StopTrack(usize),
+    Play,
+    Stop,
+    Mute(usize),
+    Solo(usize),
+    Arm(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MappingSource {
+    /// MIDI CC (channel 0..15, controller 0..127).
+    Cc { channel: u8, cc: u8 },
+    /// MIDI note (buttons / pads).
+    Note { channel: u8, note: u8 },
+    /// Computer key, by name (egui key name).
+    Key(char),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Mapping {
+    pub source: MappingSource,
+    pub target: MappingTarget,
+    /// Output range for continuous targets, in the target's natural units.
+    pub min: f32,
+    pub max: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -386,374 +751,6 @@ impl AutomationLane {
         }
         pts.last().map(|p| p.1)
     }
-}
-
-// ---------------------------------------------------------------------------
-// Devices
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DeviceSpec {
-    // Instruments
-    PolySynth(SynthParams),
-    Sampler(SamplerParams),
-    DrumRack(DrumRackParams),
-    // Audio effects
-    Eq(EqParams),
-    Compressor(CompressorParams),
-    Delay(DelayParams),
-    Reverb(ReverbParams),
-    Saturator(SaturatorParams),
-    Utility(UtilityParams),
-    AutoFilter(AutoFilterParams),
-    // Third-party
-    Plugin(PluginRef),
-}
-
-impl DeviceSpec {
-    pub fn name(&self) -> &str {
-        match self {
-            DeviceSpec::PolySynth(_) => "Poly Synth",
-            DeviceSpec::Sampler(_) => "Sampler",
-            DeviceSpec::DrumRack(_) => "Drum Rack",
-            DeviceSpec::Eq(_) => "EQ",
-            DeviceSpec::Compressor(_) => "Compressor",
-            DeviceSpec::Delay(_) => "Delay",
-            DeviceSpec::Reverb(_) => "Reverb",
-            DeviceSpec::Saturator(_) => "Saturator",
-            DeviceSpec::Utility(_) => "Utility",
-            DeviceSpec::AutoFilter(_) => "Auto Filter",
-            DeviceSpec::Plugin(p) => &p.name,
-        }
-    }
-
-    pub fn is_instrument(&self) -> bool {
-        matches!(self, DeviceSpec::PolySynth(_) | DeviceSpec::Sampler(_) | DeviceSpec::DrumRack(_)) || matches!(self, DeviceSpec::Plugin(p) if p.is_instrument)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum Waveform {
-    Sine,
-    Triangle,
-    #[default]
-    Saw,
-    Square,
-    Noise,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum FilterMode {
-    #[default]
-    LowPass,
-    HighPass,
-    BandPass,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Adsr {
-    pub attack: f32,
-    pub decay: f32,
-    pub sustain: f32,
-    pub release: f32,
-}
-
-impl Default for Adsr {
-    fn default() -> Self {
-        Self { attack: 0.005, decay: 0.2, sustain: 0.7, release: 0.25 }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct SynthParams {
-    pub osc1: Waveform,
-    pub osc2: Waveform,
-    /// Osc 2 detune in semitones.
-    pub osc2_semitones: f32,
-    pub osc2_detune_cents: f32,
-    /// 0 = only osc1, 1 = only osc2.
-    pub osc_mix: f32,
-    pub sub_level: f32,
-    pub filter_mode: FilterMode,
-    pub cutoff_hz: f32,
-    pub resonance: f32,
-    /// Filter envelope depth in octaves.
-    pub filter_env_amount: f32,
-    pub amp_env: Adsr,
-    pub filter_env: Adsr,
-    pub voices: usize,
-    pub glide: f32,
-    pub gain_db: f32,
-}
-
-impl Default for SynthParams {
-    fn default() -> Self {
-        Self {
-            osc1: Waveform::Saw,
-            osc2: Waveform::Square,
-            osc2_semitones: 0.0,
-            osc2_detune_cents: 7.0,
-            osc_mix: 0.4,
-            sub_level: 0.0,
-            filter_mode: FilterMode::LowPass,
-            cutoff_hz: 2_000.0,
-            resonance: 0.2,
-            filter_env_amount: 2.0,
-            amp_env: Adsr::default(),
-            filter_env: Adsr { attack: 0.002, decay: 0.3, sustain: 0.2, release: 0.3 },
-            voices: 16,
-            glide: 0.0,
-            gain_db: -6.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct SamplerParams {
-    pub file: String,
-    pub root_key: u8,
-    pub amp_env: Adsr,
-    pub gain_db: f32,
-    pub loop_sample: bool,
-}
-
-impl Default for SamplerParams {
-    fn default() -> Self {
-        Self { file: String::new(), root_key: 60, amp_env: Adsr { attack: 0.001, decay: 0.1, sustain: 1.0, release: 0.1 }, gain_db: 0.0, loop_sample: false }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DrumVoice {
-    Kick,
-    Snare,
-    ClosedHat,
-    OpenHat,
-    Clap,
-    Tom,
-    Rim,
-    Cowbell,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PadSource {
-    /// Built-in synthesized drum voice; works with no sample files.
-    Synth(DrumVoice),
-    Sample(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct DrumPad {
-    pub note: u8,
-    pub source: PadSource,
-    pub gain_db: f32,
-    pub pan: f32,
-    /// Pads in the same choke group cut each other off (e.g. open/closed hat).
-    pub choke_group: Option<u8>,
-    pub tune_semitones: f32,
-}
-
-impl Default for DrumPad {
-    fn default() -> Self {
-        Self { note: 36, source: PadSource::Synth(DrumVoice::Kick), gain_db: 0.0, pan: 0.0, choke_group: None, tune_semitones: 0.0 }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct DrumRackParams {
-    pub pads: Vec<DrumPad>,
-    pub gain_db: f32,
-}
-
-impl Default for DrumRackParams {
-    /// A General-MIDI-style default kit.
-    fn default() -> Self {
-        use DrumVoice::*;
-        let pad = |note, v, choke| DrumPad { note, source: PadSource::Synth(v), choke_group: choke, ..Default::default() };
-        Self {
-            pads: vec![
-                pad(36, Kick, None),
-                pad(37, Rim, None),
-                pad(38, Snare, None),
-                pad(39, Clap, None),
-                pad(42, ClosedHat, Some(1)),
-                pad(45, Tom, None),
-                pad(46, OpenHat, Some(1)),
-                pad(56, Cowbell, None),
-            ],
-            gain_db: 0.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EqBandKind {
-    LowCut,
-    LowShelf,
-    Peak,
-    HighShelf,
-    HighCut,
-    Notch,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct EqBand {
-    pub kind: EqBandKind,
-    pub freq_hz: f32,
-    pub gain_db: f32,
-    pub q: f32,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct EqParams {
-    /// Up to eight bands.
-    pub bands: Vec<EqBand>,
-    pub output_db: f32,
-}
-
-impl Default for EqParams {
-    fn default() -> Self {
-        Self {
-            bands: vec![
-                EqBand { kind: EqBandKind::LowCut, freq_hz: 30.0, gain_db: 0.0, q: 0.71, enabled: true },
-                EqBand { kind: EqBandKind::LowShelf, freq_hz: 120.0, gain_db: 0.0, q: 0.71, enabled: true },
-                EqBand { kind: EqBandKind::Peak, freq_hz: 1_000.0, gain_db: 0.0, q: 1.0, enabled: true },
-                EqBand { kind: EqBandKind::HighShelf, freq_hz: 8_000.0, gain_db: 0.0, q: 0.71, enabled: true },
-            ],
-            output_db: 0.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct CompressorParams {
-    pub threshold_db: f32,
-    pub ratio: f32,
-    pub attack_ms: f32,
-    pub release_ms: f32,
-    pub knee_db: f32,
-    pub makeup_db: f32,
-    /// Index of the track whose signal keys the compressor, if any.
-    pub sidechain_track: Option<usize>,
-    pub dry_wet: f32,
-}
-
-impl Default for CompressorParams {
-    fn default() -> Self {
-        Self { threshold_db: -18.0, ratio: 4.0, attack_ms: 5.0, release_ms: 80.0, knee_db: 6.0, makeup_db: 0.0, sidechain_track: None, dry_wet: 1.0 }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct DelayParams {
-    /// When true, `time_beats` follows the song tempo; otherwise `time_ms` is used.
-    pub sync: bool,
-    pub time_beats: f64,
-    pub time_ms: f32,
-    pub feedback: f32,
-    pub ping_pong: bool,
-    pub filter_hz: f32,
-    pub dry_wet: f32,
-}
-
-impl Default for DelayParams {
-    fn default() -> Self {
-        Self { sync: true, time_beats: 0.75, time_ms: 375.0, feedback: 0.4, ping_pong: true, filter_hz: 6_000.0, dry_wet: 0.3 }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ReverbParams {
-    pub size: f32,
-    pub damping: f32,
-    pub width: f32,
-    pub predelay_ms: f32,
-    pub dry_wet: f32,
-}
-
-impl Default for ReverbParams {
-    fn default() -> Self {
-        Self { size: 0.7, damping: 0.5, width: 1.0, predelay_ms: 10.0, dry_wet: 0.25 }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct SaturatorParams {
-    pub drive_db: f32,
-    pub output_db: f32,
-    pub dry_wet: f32,
-}
-
-impl Default for SaturatorParams {
-    fn default() -> Self {
-        Self { drive_db: 6.0, output_db: -3.0, dry_wet: 1.0 }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct UtilityParams {
-    pub gain_db: f32,
-    /// 0 = mono, 1 = unchanged, 2 = extra wide.
-    pub width: f32,
-    pub invert_left: bool,
-    pub invert_right: bool,
-    pub mono_bass_hz: Option<f32>,
-}
-
-impl Default for UtilityParams {
-    fn default() -> Self {
-        Self { gain_db: 0.0, width: 1.0, invert_left: false, invert_right: false, mono_bass_hz: None }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct AutoFilterParams {
-    pub mode: FilterMode,
-    pub cutoff_hz: f32,
-    pub resonance: f32,
-    /// LFO rate in beats per cycle when synced.
-    pub lfo_beats: f64,
-    /// LFO depth in octaves.
-    pub lfo_amount: f32,
-}
-
-impl Default for AutoFilterParams {
-    fn default() -> Self {
-        Self { mode: FilterMode::LowPass, cutoff_hz: 1_200.0, resonance: 0.3, lfo_beats: 2.0, lfo_amount: 1.5 }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PluginFormat {
-    Clap,
-    Vst3,
-    AudioUnit,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginRef {
-    pub format: PluginFormat,
-    /// Path to the plugin bundle / shared library.
-    pub path: String,
-    /// Format-specific plugin id (CLAP id, VST3 class id, AU component).
-    pub id: String,
-    pub name: String,
-    pub is_instrument: bool,
-    /// Opaque saved state, base64 or format-specific.
-    pub state: Option<String>,
 }
 
 #[cfg(test)]

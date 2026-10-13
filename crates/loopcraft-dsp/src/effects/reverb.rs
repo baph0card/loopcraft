@@ -7,10 +7,10 @@ use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::ReverbParams;
 
 pub(crate) const PARAMS: &[ParamInfo] = &[
-    ParamInfo::new("Size", 0.0, 1.0, ""),
-    ParamInfo::new("Damping", 0.0, 1.0, ""),
-    ParamInfo::new("Width", 0.0, 1.0, ""),
-    ParamInfo::new("Dry/Wet", 0.0, 1.0, ""),
+    ParamInfo::new("Size", 0.0, 1.0, "").at("size"),
+    ParamInfo::new("Damping", 0.0, 1.0, "").at("damping"),
+    ParamInfo::new("Width", 0.0, 1.0, "").at("width"),
+    ParamInfo::new("Dry/Wet", 0.0, 1.0, "").at("dry_wet"),
 ];
 
 // Tunings at 44.1 kHz, scaled to the actual rate.
