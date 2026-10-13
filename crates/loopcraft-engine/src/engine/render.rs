@@ -129,22 +129,32 @@ impl Core {
             return false;
         }
         for i in 0..n {
+            // Audible if it, or anything it feeds (group, routed track), is soloed.
             let mut rel = self.tracks[i].solo;
-            // Ancestor soloed?
-            let mut cur = self.tracks[i].parent;
+            let mut cur = self.tracks[i].dest;
+            let mut guard = 0;
             while let (false, Some(p)) = (rel, cur) {
                 rel = self.tracks[p].solo;
-                cur = self.tracks[p].parent;
+                cur = self.tracks[p].dest;
+                guard += 1;
+                if guard > n {
+                    break;
+                }
             }
             self.solo_rel[i] = rel;
         }
-        // Groups whose descendants are soloed must pass audio too.
+        // Tracks that soloed tracks feed into must pass audio too.
         for i in 0..n {
             if self.tracks[i].solo {
-                let mut cur = self.tracks[i].parent;
+                let mut cur = self.tracks[i].dest;
+                let mut guard = 0;
                 while let Some(p) = cur {
                     self.solo_rel[p] = true;
-                    cur = self.tracks[p].parent;
+                    cur = self.tracks[p].dest;
+                    guard += 1;
+                    if guard > n {
+                        break;
+                    }
                 }
             }
         }
@@ -253,6 +263,21 @@ impl Core {
             let t = &mut self.tracks[i];
             t.chan.run_effects(&fx_ctx, n);
             let audible = !any_solo || self.solo_rel[i] || self.cue_mode;
+            // Pre-fader sends: after the devices, before volume and pan.
+            if audible && !t.chan.mute {
+                for (ri, ret) in self.returns.iter_mut().enumerate() {
+                    if !self.ret_pre.get(ri).copied().unwrap_or(false) {
+                        continue;
+                    }
+                    let g = t.sends.get(ri).copied().unwrap_or(0.0);
+                    if g > 0.0 {
+                        for k in 0..n {
+                            ret.l[k] += t.chan.l[k] * g;
+                            ret.r[k] += t.chan.r[k] * g;
+                        }
+                    }
+                }
+            }
             let xf = match t.crossfade {
                 CrossfadeAssign::None => 1.0,
                 CrossfadeAssign::A => xa,
@@ -264,6 +289,9 @@ impl Core {
             t.out_r[..n].copy_from_slice(&t.chan.r[..n]);
             // Post-fader sends.
             for (ri, ret) in self.returns.iter_mut().enumerate() {
+                if self.ret_pre.get(ri).copied().unwrap_or(false) {
+                    continue;
+                }
                 let g = t.sends.get(ri).copied().unwrap_or(0.0);
                 if g > 0.0 {
                     for k in 0..n {
@@ -278,9 +306,9 @@ impl Core {
                     self.cue_r[k] += t.chan.r[k];
                 }
             }
-            let parent = t.parent;
+            let (dest, to_bus) = (t.dest, t.to_bus);
             let (src_l, src_r) = (t.chan.l.as_ptr(), t.chan.r.as_ptr());
-            match parent {
+            match dest {
                 Some(p) if p < self.tracks.len() && p != i => {
                     // SAFETY: parent and child are different tracks, so the
                     // buffers are distinct; neither is resized here.
@@ -291,13 +319,14 @@ impl Core {
                         pc.r[k] += sr[k];
                     }
                 }
-                _ => {
+                _ if to_bus => {
                     let (sl, sr) = (&self.tracks[i].chan.l, &self.tracks[i].chan.r);
                     for k in 0..n {
                         self.bus_l[k] += sl[k];
                         self.bus_r[k] += sr[k];
                     }
                 }
+                _ => {}
             }
         }
 

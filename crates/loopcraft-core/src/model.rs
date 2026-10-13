@@ -113,6 +113,20 @@ impl Project {
                 self.tracks[i].group = None;
             }
         }
+        // Output routes: valid, non-return targets that don't form a cycle.
+        for i in 0..n_tracks {
+            if let OutputRoute::Track(d) = self.tracks[i].output {
+                let valid = d < n_tracks && d != i && self.tracks[d].kind != TrackKind::Return;
+                if !valid {
+                    self.tracks[i].output = OutputRoute::Auto;
+                }
+            }
+        }
+        for i in 0..n_tracks {
+            if matches!(self.tracks[i].output, OutputRoute::Track(_)) && self.reaches(i, i) {
+                self.tracks[i].output = OutputRoute::Auto;
+            }
+        }
         for t in self.tracks.iter_mut() {
             t.sends.resize(n_returns, -70.0);
             t.slots.resize(n_scenes, None);
@@ -121,6 +135,35 @@ impl Project {
             r.sends.resize(n_returns, -70.0);
         }
         self
+    }
+
+    /// Where track `i`'s audio goes next: a routed track, its group, or
+    /// nothing (`None` = the master bus, or sends only).
+    pub fn destination(&self, i: usize) -> Option<usize> {
+        let t = self.tracks.get(i)?;
+        match t.output {
+            OutputRoute::Track(d) => Some(d),
+            OutputRoute::Sends => None,
+            OutputRoute::Auto => t.group,
+        }
+    }
+
+    /// Does audio leaving track `from` eventually reach track `to`?
+    /// (`reaches(i, i)` detects a routing cycle through `i`.)
+    pub fn reaches(&self, from: usize, to: usize) -> bool {
+        let mut cur = self.destination(from);
+        let mut steps = 0;
+        while let Some(d) = cur {
+            if d == to {
+                return true;
+            }
+            steps += 1;
+            if steps > self.tracks.len() {
+                return true; // a cycle not through `to`; treat as unsafe
+            }
+            cur = self.destination(d);
+        }
+        false
     }
 
     /// Indices of the tracks whose output feeds group track `g`, directly.
@@ -185,17 +228,22 @@ impl Project {
     }
 }
 
-/// Step-wise tempo automation lookup (each point holds until the next).
+/// Tempo automation lookup: linear ramps between breakpoints, holding the
+/// first value before the first point and the last after the last. Two
+/// points on the same beat make an instant step. `points` must be sorted.
 pub fn tempo_at(points: &[(Beats, f64)], default: f64, beat: Beats) -> f64 {
-    let mut t = points.first().map(|p| p.1).unwrap_or(default);
-    for &(b, bpm) in points {
-        if b <= beat + 1e-9 {
-            t = bpm;
-        } else {
-            break;
+    let Some(first) = points.first() else { return default };
+    if beat <= first.0 {
+        return first.1;
+    }
+    for w in points.windows(2) {
+        let ((b0, t0), (b1, t1)) = (w[0], w[1]);
+        if beat < b1 {
+            let span = b1 - b0;
+            return if span <= 1e-9 { t1 } else { t0 + (t1 - t0) * (beat - b0) / span };
         }
     }
-    t
+    points.last().map_or(default, |p| p.1)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -235,6 +283,19 @@ pub enum Monitor {
     Auto,
     In,
     Off,
+}
+
+/// Where a track's audio goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum OutputRoute {
+    /// Its group track if it has one, otherwise the master.
+    #[default]
+    Auto,
+    /// Into another track, ahead of that track's devices (like a group,
+    /// but to any track). It's summed in whatever the target's monitoring.
+    Track(usize),
+    /// Nowhere: only the sends are heard.
+    Sends,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -279,6 +340,10 @@ pub struct Track {
     pub instrument_bypassed: bool,
     /// MIDI effects (by index in `midi_effects`) that are switched off.
     pub midi_bypassed: Vec<usize>,
+    pub output: OutputRoute,
+    /// Return tracks only: sends into this return are taken before the
+    /// sending track's fader and pan (still silenced by mute and solo).
+    pub pre_fader: bool,
 }
 
 impl Default for Track {
@@ -310,6 +375,8 @@ impl Track {
             bypassed: Vec::new(),
             instrument_bypassed: false,
             midi_bypassed: Vec::new(),
+            output: OutputRoute::Auto,
+            pre_fader: false,
         }
     }
 

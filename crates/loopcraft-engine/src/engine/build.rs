@@ -77,6 +77,8 @@ impl Core {
                 Track {
                     kind: t.kind,
                     parent: t.group,
+                    dest: p.destination(i),
+                    to_bus: t.output != OutputRoute::Sends,
                     chan: Channel::new(build_effects(&t.effects, &t.bypassed, sr, loader, plugins), &t.mixer),
                     midi_fx,
                     instrument,
@@ -126,8 +128,20 @@ impl Core {
             }
         }
 
-        // Children before parents: deepest first, stable by index.
-        let depth = |i: usize| p.depth(i);
+        // Sources before their destinations (groups and routed tracks).
+        // Each track has at most one destination and routes are acyclic,
+        // so ordering by hops-to-master, deepest first, is a valid order.
+        let depth = |i: usize| {
+            let (mut d, mut cur) = (0, p.destination(i));
+            while let Some(x) = cur {
+                d += 1;
+                if d > p.tracks.len() {
+                    break;
+                }
+                cur = p.destination(x);
+            }
+            d
+        };
         let mut order: Vec<usize> = (0..tracks.len()).collect();
         order.sort_by_key(|&i| std::cmp::Reverse(depth(i)));
 
@@ -141,19 +155,19 @@ impl Core {
         let mut path = vec![0usize; n];
         for &i in &order {
             let own = tracks[i].chan.latency;
-            let child_max = (0..n).filter(|&c| tracks[c].parent == Some(i)).map(|c| path[c]).max().unwrap_or(0);
+            let child_max = (0..n).filter(|&c| tracks[c].dest == Some(i)).map(|c| path[c]).max().unwrap_or(0);
             path[i] = own + child_max;
         }
         // Align siblings inside each group and at the top level.
         let mut delays = vec![0usize; n];
         for i in 0..n {
-            let siblings_max = (0..n).filter(|&c| tracks[c].parent == tracks[i].parent).map(|c| path[c]).max().unwrap_or(0);
+            let siblings_max = (0..n).filter(|&c| tracks[c].dest == tracks[i].dest).map(|c| path[c]).max().unwrap_or(0);
             delays[i] = siblings_max - path[i];
         }
         for (t, d) in tracks.iter_mut().zip(delays.iter()) {
             t.chan.pdc = FixedDelay::new(*d);
         }
-        let top_max = (0..n).filter(|&i| tracks[i].parent.is_none()).map(|i| path[i]).max().unwrap_or(0);
+        let top_max = (0..n).filter(|&i| tracks[i].dest.is_none()).map(|i| path[i]).max().unwrap_or(0);
         let ret_max = returns.iter().map(|r| r.latency).max().unwrap_or(0);
         for r in returns.iter_mut() {
             r.pdc = FixedDelay::new(ret_max - r.latency);
@@ -185,6 +199,7 @@ impl Core {
             order,
             returns,
             return_sends,
+            ret_pre: p.returns.iter().map(|r| r.pre_fader).collect(),
             master,
             bus_l: vec![0.0; CHUNK],
             bus_r: vec![0.0; CHUNK],

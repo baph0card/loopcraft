@@ -357,20 +357,43 @@ fn count_in_delays_the_transport() {
 #[test]
 fn tempo_automation_changes_tempo_on_time() {
     let mut p = Project::default();
-    p.tempo_automation = vec![(0.0, 120.0), (4.0, 60.0)];
+    // Ramp 120 -> 60 over beats 0..4, then an instant step up to 140 at beat 8.
+    p.tempo_automation = vec![(0.0, 120.0), (4.0, 60.0), (8.0, 60.0), (8.0, 140.0)];
     let (mut e, mut h) = engine_for(&p);
     h.send(Command::Play).ok();
-    render(&mut e, beats(4.0, 120.0) - 10);
-    assert_eq!(e.core().tempo(), 120.0);
-    render(&mut e, 20);
-    assert_eq!(e.core().tempo(), 60.0);
+    while e.core().beat() < 2.0 {
+        render(&mut e, 64);
+    }
+    let mid = e.core().tempo();
+    assert!((mid - 90.0).abs() < 1.5, "halfway through the ramp: {mid}");
+    while e.core().beat() < 7.9 {
+        render(&mut e, 64);
+    }
+    assert!((e.core().tempo() - 60.0).abs() < 1e-9);
+    while e.core().beat() < 8.05 {
+        render(&mut e, 64);
+    }
+    assert_eq!(e.core().tempo(), 140.0);
     // A manual tempo change overrides automation until Back to Arrangement.
     h.send(Command::SetTempo(100.0)).ok();
     render(&mut e, 256);
     assert_eq!(e.core().tempo(), 100.0);
     h.send(Command::BackToArrangement).ok();
     render(&mut e, 256);
-    assert_eq!(e.core().tempo(), 60.0);
+    assert_eq!(e.core().tempo(), 140.0);
+}
+
+#[test]
+fn tempo_ramp_lands_on_the_integrated_beat() {
+    // bpm(b) = 120 - 15b, so the ramp lasts ∫0..4 60/bpm db = 4 ln 2 ≈ 2.77 s.
+    let mut p = Project::default();
+    p.tempo_automation = vec![(0.0, 120.0), (4.0, 60.0)];
+    let (mut e, mut h) = engine_for(&p);
+    h.send(Command::Play).ok();
+    let frames = (4.0 * std::f64::consts::LN_2 * SR as f64) as usize;
+    render(&mut e, frames);
+    let b = e.core().beat();
+    assert!((b - 4.0).abs() < 0.02, "beat after the ramp's duration: {b}");
 }
 
 #[test]
@@ -414,4 +437,80 @@ fn cue_mode_sends_soloed_tracks_to_cue_output() {
     assert!((freq(&cue[4_800..]) - 261.6).abs() < 5.0, "{}", freq(&cue[4_800..]));
     assert!(e.core().state().cue.peak_l.load() > 0.0);
     let _ = Relaxed;
+}
+
+fn tone_project() -> Project {
+    let mut p = Project::default();
+    p.add_scene("1");
+    let t = p.add_track(synth_track());
+    p.tracks[t].slots[0] = Some(Clip::midi("c", 4.0, vec![Note::new(69, 0.0, 4.0, 110)]));
+    p
+}
+
+#[test]
+fn output_routing_sums_into_the_target_track_and_through_its_devices() {
+    let mut p = tone_project();
+    // Route the synth into an empty audio track whose fader is closed.
+    let dst = p.add_track(Track::audio("Bus"));
+    p.tracks[0].output = OutputRoute::Track(dst);
+    p.tracks[dst].mixer.volume_db = -70.0;
+    let (mut e, mut h) = engine_for(&p);
+    h.send(Command::LaunchClip { track: 0, slot: 0 }).ok();
+    let quiet = render(&mut e, 9600);
+    assert!(peak(&quiet[4800..]) < 1e-3, "routed audio must pass the target's (closed) fader");
+    // Open the target's fader: now it's heard.
+    h.send(Command::SetVolume { channel: TrackRef::Track(dst), db: 0.0 }).ok();
+    let loud = render(&mut e, 9600);
+    assert!(peak(&loud[4800..]) > 0.05);
+    // The source's own meter still moves; the target's too.
+    assert!(h.state.tracks[dst].channel.peak_l.load() > 0.05);
+}
+
+#[test]
+fn sends_only_output_reaches_nothing_but_the_returns() {
+    let mut p = tone_project();
+    p.tracks[0].output = OutputRoute::Sends;
+    let (mut e, mut h) = engine_for(&p);
+    h.send(Command::LaunchClip { track: 0, slot: 0 }).ok();
+    let out = render(&mut e, 9600);
+    assert!(peak(&out[4800..]) < 1e-6);
+}
+
+#[test]
+fn routing_cycles_are_rejected() {
+    let mut p = tone_project();
+    let b = p.add_track(Track::audio("B"));
+    p.tracks[0].output = OutputRoute::Track(b);
+    p.tracks[b].output = OutputRoute::Track(0);
+    let p = p.normalized();
+    let routed = [p.tracks[0].output, p.tracks[b].output].iter().filter(|o| matches!(o, OutputRoute::Track(_))).count();
+    assert_eq!(routed, 1, "the cycle is broken by dropping one route, keeping the other");
+    assert!(!p.reaches(0, 0) && !p.reaches(b, b));
+    let mut q = tone_project();
+    q.tracks[0].output = OutputRoute::Track(0);
+    assert_eq!(q.normalized().tracks[0].output, OutputRoute::Auto);
+}
+
+#[test]
+fn pre_fader_sends_ignore_the_fader() {
+    let mut p = tone_project();
+    p.add_return(Track::new("R", TrackKind::Return));
+    p.tracks[0].sends = vec![0.0];
+    p.tracks[0].mixer.volume_db = -70.0;
+    // Post-fader: fader down silences the send too.
+    let (mut e, mut h) = engine_for(&p);
+    h.send(Command::LaunchClip { track: 0, slot: 0 }).ok();
+    let post = render(&mut e, 9600);
+    assert!(peak(&post[4800..]) < 1e-3);
+    // Pre-fader: the return still gets the signal.
+    p.returns[0].pre_fader = true;
+    let (mut e, mut h) = engine_for(&p);
+    h.send(Command::LaunchClip { track: 0, slot: 0 }).ok();
+    let pre = render(&mut e, 9600);
+    assert!(peak(&pre[4800..]) > 0.05);
+    // ...but mute still silences it.
+    h.send(Command::SetMute { channel: TrackRef::Track(0), mute: true }).ok();
+    render(&mut e, 4800);
+    let muted = render(&mut e, 4800);
+    assert!(peak(&muted) < 1e-3);
 }

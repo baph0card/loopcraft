@@ -156,7 +156,13 @@ impl Stretchers {
 
 pub(crate) struct Track {
     pub kind: TrackKind,
+    /// Group track this track belongs to (for launching and solo).
     pub parent: Option<usize>,
+    /// Track whose input this track's audio is summed into (routed
+    /// output or group); `None` = the master bus (if `to_bus`).
+    pub dest: Option<usize>,
+    /// False when the output is "sends only".
+    pub to_bus: bool,
     pub chan: Channel,
     pub midi_fx: Vec<MidiFxSlot>,
     pub instrument: Option<Box<dyn Instrument>>,

@@ -420,6 +420,13 @@ fn return_column(app: &mut App, ui: &mut egui::Ui, r: usize, st: &EngineState) {
         let fx: Vec<&str> = app.project.returns[r].effects.iter().map(|d| d.name()).collect();
         ui.painter().text(rect.center_top() + vec2(0.0, 12.0), Align2::CENTER_CENTER, fx.join(", "), FontId::proportional(10.0), theme::DIM);
         ui.add_space(6.0);
+        let pre = app.project.returns[r].pre_fader;
+        if small_toggle(ui, pre, if pre { "Pre" } else { "Post" }, theme::ACCENT)
+            .on_hover_text("Sends into this return: pre-fader (ignore the sending track's volume and pan) or post-fader")
+            .clicked()
+        {
+            app.set_return_pre_fader(r, !pre);
+        }
         mixer_strip(app, ui, TrackRef::Return(r), st);
     });
 }
@@ -683,10 +690,53 @@ fn input_label(i: InputSource, app: &App) -> String {
     }
 }
 
+fn output_label(app: &App, t: usize) -> String {
+    match app.project.tracks[t].output {
+        OutputRoute::Auto => match app.project.tracks[t].group {
+            Some(g) => format!("→ {}", app.project.tracks.get(g).map(|x| x.name.as_str()).unwrap_or("?")),
+            None => "→ Master".into(),
+        },
+        OutputRoute::Track(d) => format!("→ {}", app.project.tracks.get(d).map(|x| x.name.as_str()).unwrap_or("?")),
+        OutputRoute::Sends => "→ Sends only".into(),
+    }
+}
+
+fn output_combo(app: &mut App, ui: &mut egui::Ui, t: usize) {
+    let cur = app.project.tracks[t].output;
+    let mut pick = None;
+    egui::ComboBox::from_id_salt(("output", t)).selected_text(RichText::new(output_label(app, t)).size(10.0)).show_ui(ui, |ui| {
+        let auto = match app.project.tracks[t].group {
+            Some(g) => format!("Group ({})", app.project.tracks.get(g).map(|x| x.name.as_str()).unwrap_or("?")),
+            None => "Master".to_string(),
+        };
+        if ui.selectable_label(cur == OutputRoute::Auto, auto).clicked() {
+            pick = Some(OutputRoute::Auto);
+        }
+        if ui.selectable_label(cur == OutputRoute::Sends, "Sends only").clicked() {
+            pick = Some(OutputRoute::Sends);
+        }
+        ui.separator();
+        for d in 0..app.project.tracks.len() {
+            // Hide targets that would create a loop.
+            let loops = d == t || app.project.reaches(d, t);
+            if !loops && ui.selectable_label(cur == OutputRoute::Track(d), &app.project.tracks[d].name).clicked() {
+                pick = Some(OutputRoute::Track(d));
+            }
+        }
+    });
+    if let Some(r) = pick
+        && r != cur
+    {
+        app.set_output(t, r);
+    }
+}
+
 fn io_section(app: &mut App, ui: &mut egui::Ui, t: usize) {
     let tr = &app.project.tracks[t];
     let kind = tr.kind;
     if kind == TrackKind::Group {
+        ui.spacing_mut().combo_width = COL_W - 16.0;
+        output_combo(app, ui, t);
         return;
     }
     let mut input = tr.input;
@@ -713,6 +763,7 @@ fn io_section(app: &mut App, ui: &mut egui::Ui, t: usize) {
     } else {
         ui.label(RichText::new("In: all MIDI").size(10.0).color(theme::DIM));
     }
+    output_combo(app, ui, t);
     ui.horizontal(|ui| {
         for (m, l) in [(Monitor::In, "In"), (Monitor::Auto, "Auto"), (Monitor::Off, "Off")] {
             if small_toggle(ui, monitor == m, l, theme::ACCENT).on_hover_text("Monitoring").clicked() {

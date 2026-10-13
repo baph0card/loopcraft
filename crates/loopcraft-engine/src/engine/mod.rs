@@ -89,6 +89,8 @@ pub struct Core {
     pub(crate) solo_rel: Vec<bool>,
     pub(crate) returns: Vec<Channel>,
     pub(crate) return_sends: Vec<Vec<f32>>,
+    /// Per return: are track sends into it taken pre-fader?
+    pub(crate) ret_pre: Vec<bool>,
     pub(crate) master: Channel,
     /// Sum of tracks before master; delayed to line up with return latency.
     pub(crate) bus_l: Vec<f32>,

@@ -19,6 +19,9 @@ fn remap_track_refs(p: &mut Project, map: &dyn Fn(usize) -> Option<usize>) {
         if let InputSource::Track(i) = t.input {
             t.input = map(i).map_or(InputSource::None, InputSource::Track);
         }
+        if let OutputRoute::Track(i) = t.output {
+            t.output = map(i).map_or(OutputRoute::Auto, OutputRoute::Track);
+        }
     }
     p.mappings.retain_mut(|m| {
         let r = |i: usize| map(i);
@@ -419,6 +422,33 @@ impl App {
         if let Some(tr) = self.project.tracks.get_mut(t) {
             tr.armed = armed;
             self.send(Command::SetArm { track: t, armed });
+        }
+    }
+
+    /// Route a track's output. Refuses routes that would loop back.
+    pub fn set_output(&mut self, t: usize, route: OutputRoute) {
+        if t >= self.project.tracks.len() {
+            return;
+        }
+        let old = self.project.tracks[t].output;
+        self.project.tracks[t].output = route;
+        if matches!(route, OutputRoute::Track(_)) && self.project.reaches(t, t) {
+            self.project.tracks[t].output = old;
+            self.status = "That route would feed the track back into itself".into();
+            return;
+        }
+        self.project.tracks[t].output = old;
+        self.checkpoint();
+        self.project.tracks[t].output = route;
+        self.project = std::mem::take(&mut self.project).normalized();
+        self.rebuild();
+    }
+
+    pub fn set_return_pre_fader(&mut self, r: usize, pre: bool) {
+        if r < self.project.returns.len() {
+            self.checkpoint();
+            self.project.returns[r].pre_fader = pre;
+            self.rebuild();
         }
     }
 
