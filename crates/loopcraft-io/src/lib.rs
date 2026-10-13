@@ -5,8 +5,8 @@ pub mod demo;
 pub mod midi;
 pub mod render;
 
-pub use audio::{BitDepth, FileLoader, read_wav, write_wav};
-pub use render::{RenderMode, RenderOptions, Rendered, render};
+pub use audio::{AUDIO_EXTENSIONS, BitDepth, FileLoader, read_audio, read_wav, write_aiff, write_audio, write_flac, write_wav};
+pub use render::{RenderMode, RenderOptions, Rendered, render, render_stems};
 
 #[cfg(test)]
 mod tests {
@@ -31,6 +31,25 @@ mod tests {
         assert_eq!(back.channels.len(), 2);
         assert!((back.channels[0][100] - l[100]).abs() < 1e-4);
         assert!((back.channels[1][100] - r[100]).abs() < 1e-4);
+    }
+
+    #[test]
+    fn flac_and_aiff_roundtrip_through_the_decoder() {
+        let d = tmp("formats");
+        let l: Vec<f32> = (0..4410).map(|i| (i as f32 * 0.03).sin() * 0.5).collect();
+        let r: Vec<f32> = l.iter().map(|x| x * -0.5).collect();
+        for ext in ["flac", "aiff"] {
+            let p = d.join(format!("t.{ext}"));
+            write_audio(&p, &l, &r, 44_100, BitDepth::Int24).unwrap();
+            let back = read_audio(&p).unwrap();
+            assert_eq!(back.sample_rate, 44_100.0, "{ext}");
+            assert_eq!(back.channels.len(), 2, "{ext}");
+            assert_eq!(back.len(), 4410, "{ext}");
+            for i in (0..4410).step_by(101) {
+                assert!((back.channels[0][i] - l[i]).abs() < 1e-4, "{ext} L {i}");
+                assert!((back.channels[1][i] - r[i]).abs() < 1e-4, "{ext} R {i}");
+            }
+        }
     }
 
     #[test]

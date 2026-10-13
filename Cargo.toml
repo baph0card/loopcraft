@@ -45,6 +45,7 @@ anyhow = "1"
 rustfft = "6"
 symphonia = { version = "0.5", features = ["mp3", "aiff"] }
 midir = "0.10"
+flacenc = "0.5"
 
 [profile.dev]
 opt-level = 1

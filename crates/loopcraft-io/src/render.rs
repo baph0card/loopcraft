@@ -99,7 +99,29 @@ pub fn render(project: &Project, base_dir: &Path, opts: &RenderOptions, plugins:
     }
     handle.send(Command::StopAllClips).ok();
     handle.send(Command::Stop).ok();
-    run_frames(&mut engine, &mut out, (opts.tail_seconds.max(0.0) * sr) as usize);
+    // Render the latency extra so nothing is cut, then drop it from the start.
+    let latency = engine.core().latency();
+    run_frames(&mut engine, &mut out, (opts.tail_seconds.max(0.0) * sr) as usize + latency);
+    out.left.drain(..latency.min(out.left.len()));
+    out.right.drain(..latency.min(out.right.len()));
     handle.poll();
     Ok(out)
+}
+
+/// Render each top-level track (and group) on its own, including what it
+/// sends to return tracks. Returns (track name, audio) pairs.
+pub fn render_stems(project: &Project, base_dir: &Path, opts: &RenderOptions, plugins: &dyn PluginFactory) -> Result<Vec<(String, Rendered)>> {
+    let mut stems = Vec::new();
+    for (i, t) in project.tracks.iter().enumerate() {
+        if t.group.is_some() {
+            continue;
+        }
+        let mut p = project.clone();
+        for (j, tr) in p.tracks.iter_mut().enumerate() {
+            tr.mixer.solo = j == i;
+        }
+        let r = render(&p, base_dir, opts, plugins)?;
+        stems.push((t.name.clone(), r));
+    }
+    Ok(stems)
 }
