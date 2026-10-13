@@ -119,7 +119,11 @@ impl Envelope {
     }
 
     /// Fast fade used when a voice is stolen or a drum pad is choked.
+    /// Idle envelopes stay idle.
     pub fn kill(&mut self) {
+        if self.stage == Stage::Idle {
+            return;
+        }
         self.stage = Stage::Release;
         self.release_coeff = (-4.6 / (0.003 * self.sr)).exp();
     }

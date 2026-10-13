@@ -135,7 +135,7 @@ impl Instrument for MultiSampler {
         let filter_on = self.p.cutoff_hz < 19_500.0 || self.p.resonance > 0.01;
         let glide_c = if self.p.glide > 0.0 { (-1.0 / (self.p.glide as f64 * sr as f64)).exp() } else { 0.0 };
         for v in self.voices.iter_mut().filter(|v| v.env.is_active()) {
-            let zone = &self.zones[v.zone];
+            let Some(zone) = self.zones.get(v.zone) else { continue };
             let Some(buf) = zone.buf.as_deref() else { continue };
             let len = buf.len() as f64;
             let fsr = buf.sample_rate as f64;
