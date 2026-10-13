@@ -14,6 +14,9 @@ pub struct Settings {
     pub count_in_bars: u32,
     /// Where presets, recordings and new projects go by default.
     pub library_dir: Option<PathBuf>,
+    /// False for throwaway settings (tests): never written to disk.
+    #[serde(skip)]
+    pub persist: bool,
 }
 
 impl Default for Settings {
@@ -24,6 +27,7 @@ impl Default for Settings {
             recent: Vec::new(),
             count_in_bars: 0,
             library_dir: None,
+            persist: true,
         }
     }
 }
@@ -41,10 +45,15 @@ fn config_path() -> Option<PathBuf> {
 
 impl Settings {
     pub fn load() -> Self {
-        config_path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        let mut s: Self = config_path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        s.persist = true;
+        s
     }
 
     pub fn save(&self) {
+        if !self.persist {
+            return;
+        }
         if let Some(p) = config_path() {
             if let Some(d) = p.parent() {
                 let _ = std::fs::create_dir_all(d);

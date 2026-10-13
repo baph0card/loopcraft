@@ -210,7 +210,7 @@ impl App {
     /// No audio device, no MIDI, default settings: for tests.
     #[cfg(test)]
     pub fn headless(project: Project) -> Self {
-        let mut s = Settings::default();
+        let mut s = Settings { persist: false, ..Default::default() };
         s.library_dir = Some(std::env::temp_dir().join(format!("loopcraft-test-{}", std::process::id())));
         Self::with(project, None, s, MidiIn::none(), false)
     }

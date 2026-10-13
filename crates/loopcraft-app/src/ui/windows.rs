@@ -221,7 +221,7 @@ fn mappings(app: &mut App, ctx: &egui::Context) {
             };
             ui.label(RichText::new(msg).color(theme::ACCENT));
         }
-        if app.project.mappings.is_empty() {
+        if app.project.mappings.is_empty() && app.map_mode.is_none() {
             ui.label(RichText::new("No mappings yet. Turn on MIDI or KEY map mode in the toolbar.").color(theme::DIM));
         }
         let mut remove = None;
