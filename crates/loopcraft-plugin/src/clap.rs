@@ -119,7 +119,7 @@ unsafe extern "C" fn host_noop(_: *const clap_host) {}
 const HOST_NAME: &CStr = c"LoopCraft";
 const HOST_VENDOR: &CStr = c"LoopCraft contributors";
 const HOST_URL: &CStr = c"https://github.com/loopcraft/loopcraft";
-const HOST_VERSION: &CStr = c"0.1.0";
+const HOST_VERSION: &CStr = c"0.2.0";
 
 // --- event lists -----------------------------------------------------------
 
