@@ -121,7 +121,29 @@ fn device_box(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef, pa
             }
             ui.separator();
             if let DeviceSpec::Plugin(p) = spec {
-                ui.label(RichText::new(format!("CLAP · {}", p.id)).size(10.0).color(theme::DIM));
+                let fmt = match p.format {
+                    loopcraft_core::PluginFormat::Clap => "CLAP",
+                    loopcraft_core::PluginFormat::Vst3 => "VST3",
+                    loopcraft_core::PluginFormat::AudioUnit => "AU",
+                };
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{fmt} · {}", p.name)).size(10.0).color(theme::DIM));
+                    let inst = p.instance;
+                    if app.plugins.instance(inst).is_none() {
+                        ui.label(RichText::new("not loaded").size(10.0).color(theme::DIM));
+                    } else if app.plugins.has_editor(inst) {
+                        let open = app.plugins.editor_open(inst);
+                        if ui.small_button(if open { "Close editor" } else { "Open editor" }).clicked() {
+                            if open {
+                                app.plugins.close_editor(inst);
+                            } else if let Err(e) = app.plugins.open_editor(inst) {
+                                app.status = format!("Couldn't open {}'s editor: {e}", p.name);
+                            }
+                        }
+                    } else {
+                        ui.label(RichText::new("no editor").size(10.0).color(theme::DIM));
+                    }
+                });
                 if specs::param_infos(spec).is_empty() {
                     ui.label(RichText::new("No parameters exposed (or the plugin failed to load).").size(10.0).color(theme::DIM));
                 } else {
@@ -130,7 +152,6 @@ fn device_box(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef, pa
                         .max_height(220.0)
                         .show(ui, |ui| params(app, ui, ch, dev, path, spec));
                 }
-                ui.label(RichText::new("Plugin editor windows aren't supported yet.").size(9.0).color(theme::DIM));
                 return;
             }
             if let DeviceSpec::AudioRack(r) | DeviceSpec::InstrumentRack(r) = spec {

@@ -1,7 +1,10 @@
 //! A minimal CLAP plugin library written against the raw C API, used to
 //! test LoopCraft's host. Contains:
 //!   - `dev.loopcraft.test-gain`: gain effect (default 0.5) with one
-//!     parameter ("Gain", id 7) and 16 samples of reported, real latency
+//!     parameter ("Gain", id 7), 16 samples of reported, real latency,
+//!     saved state, and an X11 editor. While the editor is open the plugin
+//!     runs a host timer, and on its first tick acts like a user turning
+//!     the knob: gain becomes 1.5 and the change is reported to the host.
 //!   - `dev.loopcraft.test-sine`: monophonic sine (instrument)
 
 #![allow(clippy::missing_safety_doc)]
@@ -9,16 +12,22 @@
 use clap_sys::audio_buffer::clap_audio_buffer;
 use clap_sys::entry::clap_plugin_entry;
 use clap_sys::events::*;
+use clap_sys::ext::gui::{CLAP_EXT_GUI, CLAP_WINDOW_API_X11, clap_plugin_gui, clap_window};
 use clap_sys::ext::latency::{CLAP_EXT_LATENCY, clap_plugin_latency};
 use clap_sys::ext::params::{CLAP_EXT_PARAMS, CLAP_PARAM_IS_AUTOMATABLE, clap_param_info, clap_plugin_params};
+use clap_sys::ext::state::{CLAP_EXT_STATE, clap_plugin_state};
+use clap_sys::ext::timer_support::{CLAP_EXT_TIMER_SUPPORT, clap_host_timer_support, clap_plugin_timer_support};
 use clap_sys::factory::plugin_factory::{CLAP_PLUGIN_FACTORY_ID, clap_plugin_factory};
 use clap_sys::host::clap_host;
 use clap_sys::id::clap_id;
 use clap_sys::plugin::{clap_plugin, clap_plugin_descriptor};
 use clap_sys::process::{CLAP_PROCESS_CONTINUE, clap_process, clap_process_status};
+use clap_sys::stream::{clap_istream, clap_ostream};
 use clap_sys::version::CLAP_VERSION;
 use std::ffi::{CStr, c_char, c_void};
 use std::ptr;
+use x11rb::connection::Connection;
+use x11rb::protocol::xproto::{ConnectionExt as _, CreateWindowAux, WindowClass};
 
 struct Features([*const c_char; 2]);
 unsafe impl Sync for Features {}
@@ -55,6 +64,13 @@ struct Data {
     /// Delay line for the gain effect's latency.
     delay: [[f32; LATENCY]; 2],
     pos: usize,
+    host: *const clap_host,
+    parent: u64,
+    window: Option<(x11rb::rust_connection::RustConnection, u32)>,
+    timer: Option<clap_id>,
+    /// Set by the timer; the next process reports gain 1.5 to the host.
+    knob_turned: bool,
+    report: bool,
 }
 
 const LATENCY: usize = 16;
@@ -106,6 +122,126 @@ unsafe extern "C" fn latency_get(_: *const clap_plugin) -> u32 {
 }
 static LATENCY_EXT: clap_plugin_latency = clap_plugin_latency { get: Some(latency_get) };
 
+// --- state: the gain as 8 bytes --------------------------------------------
+
+unsafe extern "C" fn state_save(p: *const clap_plugin, s: *const clap_ostream) -> bool {
+    unsafe {
+        let b = data(p).gain.to_le_bytes();
+        (*s).write.map(|w| w(s, b.as_ptr() as *const c_void, 8)).unwrap_or(-1) == 8
+    }
+}
+unsafe extern "C" fn state_load(p: *const clap_plugin, s: *const clap_istream) -> bool {
+    unsafe {
+        let mut b = [0u8; 8];
+        if (*s).read.map(|r| r(s, b.as_mut_ptr() as *mut c_void, 8)).unwrap_or(-1) != 8 {
+            return false;
+        }
+        data(p).gain = f64::from_le_bytes(b);
+        true
+    }
+}
+static STATE: clap_plugin_state = clap_plugin_state { save: Some(state_save), load: Some(state_load) };
+
+// --- editor: an orange X11 child window ---------------------------------------
+
+unsafe extern "C" fn gui_supported(_: *const clap_plugin, api: *const c_char, floating: bool) -> bool {
+    !floating && unsafe { CStr::from_ptr(api) } == CLAP_WINDOW_API_X11
+}
+unsafe extern "C" fn gui_create(_: *const clap_plugin, api: *const c_char, floating: bool) -> bool {
+    unsafe { gui_supported(ptr::null(), api, floating) }
+}
+unsafe extern "C" fn gui_destroy(p: *const clap_plugin) {
+    unsafe {
+        let d = data(p);
+        if let Some((c, w)) = d.window.take() {
+            let _ = c.destroy_window(w);
+            let _ = c.flush();
+        }
+        if let Some(id) = d.timer.take()
+            && let Some(t) = host_timer(d.host)
+            && let Some(un) = t.unregister_timer
+        {
+            un(d.host, id);
+        }
+    }
+}
+unsafe extern "C" fn gui_set_scale(_: *const clap_plugin, _: f64) -> bool {
+    false
+}
+unsafe extern "C" fn gui_get_size(_: *const clap_plugin, w: *mut u32, h: *mut u32) -> bool {
+    unsafe {
+        *w = 320;
+        *h = 180;
+    }
+    true
+}
+unsafe extern "C" fn gui_can_resize(_: *const clap_plugin) -> bool {
+    false
+}
+unsafe extern "C" fn gui_set_parent(p: *const clap_plugin, w: *const clap_window) -> bool {
+    unsafe { data(p).parent = (*w).specific.x11 };
+    true
+}
+unsafe extern "C" fn gui_show(p: *const clap_plugin) -> bool {
+    unsafe {
+        let d = data(p);
+        let Ok((conn, screen)) = x11rb::connect(None) else { return false };
+        let Ok(id) = conn.generate_id() else { return false };
+        let px = conn.setup().roots[screen].white_pixel;
+        let aux = CreateWindowAux::new().background_pixel(0xF0_9A_3C & px);
+        if conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, id, d.parent as u32, 0, 0, 320, 180, 0, WindowClass::INPUT_OUTPUT, 0, &aux).is_err() {
+            return false;
+        }
+        let _ = conn.map_window(id);
+        let _ = conn.flush();
+        d.window = Some((conn, id));
+        if let Some(t) = host_timer(d.host)
+            && let Some(reg) = t.register_timer
+        {
+            let mut tid: clap_id = 0;
+            if reg(d.host, 10, &mut tid) {
+                d.timer = Some(tid);
+            }
+        }
+        true
+    }
+}
+unsafe extern "C" fn gui_hide(_: *const clap_plugin) -> bool {
+    true
+}
+unsafe fn host_timer<'a>(h: *const clap_host) -> Option<&'a clap_host_timer_support> {
+    unsafe {
+        let e = (*h).get_extension?(h, CLAP_EXT_TIMER_SUPPORT.as_ptr());
+        if e.is_null() { None } else { Some(&*(e as *const clap_host_timer_support)) }
+    }
+}
+static GUI: clap_plugin_gui = clap_plugin_gui {
+    is_api_supported: Some(gui_supported),
+    get_preferred_api: None,
+    create: Some(gui_create),
+    destroy: Some(gui_destroy),
+    set_scale: Some(gui_set_scale),
+    get_size: Some(gui_get_size),
+    can_resize: Some(gui_can_resize),
+    get_resize_hints: None,
+    adjust_size: None,
+    set_size: None,
+    set_parent: Some(gui_set_parent),
+    set_transient: None,
+    suggest_title: None,
+    show: Some(gui_show),
+    hide: Some(gui_hide),
+};
+
+unsafe extern "C" fn on_timer(p: *const clap_plugin, _: clap_id) {
+    let d = unsafe { data(p) };
+    if !d.knob_turned {
+        d.knob_turned = true;
+        d.report = true;
+    }
+}
+static TIMER: clap_plugin_timer_support = clap_plugin_timer_support { on_timer: Some(on_timer) };
+
 unsafe fn data<'a>(p: *const clap_plugin) -> &'a mut Data {
     unsafe { &mut *((*p).plugin_data as *mut Data) }
 }
@@ -136,6 +272,12 @@ unsafe extern "C" fn get_extension(p: *const clap_plugin, id: *const c_char) -> 
             &PARAMS as *const _ as *const c_void
         } else if id == CLAP_EXT_LATENCY {
             &LATENCY_EXT as *const _ as *const c_void
+        } else if id == CLAP_EXT_STATE {
+            &STATE as *const _ as *const c_void
+        } else if id == CLAP_EXT_GUI {
+            &GUI as *const _ as *const c_void
+        } else if id == CLAP_EXT_TIMER_SUPPORT {
+            &TIMER as *const _ as *const c_void
         } else {
             ptr::null()
         }
@@ -186,6 +328,31 @@ unsafe extern "C" fn process(p: *const clap_plugin, pr: *const clap_process) -> 
                     }
                 }
             }
+            if d.report {
+                d.report = false;
+                d.gain = 1.5;
+                let header = clap_event_header {
+                    size: std::mem::size_of::<clap_event_param_value>() as u32,
+                    time: 0,
+                    space_id: CLAP_CORE_EVENT_SPACE_ID,
+                    type_: CLAP_EVENT_PARAM_VALUE,
+                    flags: 0,
+                };
+                let ev = clap_event_param_value {
+                    header,
+                    param_id: GAIN_ID,
+                    cookie: ptr::null_mut(),
+                    note_id: -1,
+                    port_index: -1,
+                    channel: -1,
+                    key: -1,
+                    value: 1.5,
+                };
+                let out = &*pr.out_events;
+                if let Some(push) = out.try_push {
+                    push(out, &ev.header);
+                }
+            }
             let inp: &clap_audio_buffer = &*pr.audio_inputs;
             let (il, ir) = (*inp.data32, *inp.data32.add(1));
             let g = d.gain as f32;
@@ -214,7 +381,7 @@ unsafe extern "C" fn descriptor(_: *const clap_plugin_factory, i: u32) -> *const
     }
 }
 
-unsafe extern "C" fn create(_: *const clap_plugin_factory, _: *const clap_host, id: *const c_char) -> *const clap_plugin {
+unsafe extern "C" fn create(_: *const clap_plugin_factory, host: *const clap_host, id: *const c_char) -> *const clap_plugin {
     let id = unsafe { CStr::from_ptr(id) };
     let (desc, sine): (&'static clap_plugin_descriptor, bool) = if id == c"dev.loopcraft.test-gain" {
         (&GAIN, false)
@@ -246,6 +413,12 @@ unsafe extern "C" fn create(_: *const clap_plugin_factory, _: *const clap_host, 
         gain: 0.5,
         delay: [[0.0; LATENCY]; 2],
         pos: 0,
+        host,
+        parent: 0,
+        window: None,
+        timer: None,
+        knob_turned: false,
+        report: false,
     }));
     unsafe {
         (*d).clap.plugin_data = d as *mut c_void;

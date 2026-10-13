@@ -4,7 +4,7 @@ This is an honest map of where LoopCraft stands against Ableton Live 12 Suite, a
 
 **Legend:** ✅ done · 🟡 partial (see note) · ❌ not started
 
-"Done" means implemented, wired into the app, and covered by automated tests where a test makes sense: 134 tests at the time of writing, plus a device audit that renders every built-in device through the engine. It does **not** mean listening-tested on real hardware. The development machine had no audio or MIDI devices, so every real-time device path has only been run against the silent fallback driver. Treat sound quality and latency on real interfaces as unverified until someone reports back.
+"Done" means implemented, wired into the app, and covered by automated tests where a test makes sense: 159 tests at the time of writing, plus a device audit that renders every built-in device through the engine. It does **not** mean listening-tested on real hardware. The development machine had no audio or MIDI devices, so every real-time device path has only been run against the silent fallback driver. Treat sound quality and latency on real interfaces as unverified until someone reports back.
 
 ---
 
@@ -22,8 +22,8 @@ This is an honest map of where LoopCraft stands against Ableton Live 12 Suite, a
 | MIDI recording into slots | ✅ | Open-ended, quantized start/stop, loops seamlessly afterwards |
 | MIDI overdub | ✅ | Session Record on an armed track that's playing a MIDI clip |
 | Audio recording into slots | ✅ | Written as 32-bit float WAV to `Samples/Recorded` |
-| Capture MIDI | ❌ | |
-| Session → Arrangement recording | 🟡 | Arrangement Record captures armed tracks' *input*; recording the Session's clip launches onto the timeline isn't done |
+| Capture MIDI | ✅ | Takes the last phrase played (stopped or playing), sets the loop length and tempo-matched start, puts it in a slot or on the timeline |
+| Session → Arrangement recording | ✅ | With Arrangement Record on, Session launches and stops are written to the timeline as regions |
 | Clip / track / scene colors and renaming | ✅ | |
 | Copy / paste / duplicate clips | ✅ | |
 
@@ -41,7 +41,7 @@ This is an honest map of where LoopCraft stands against Ableton Live 12 Suite, a
 | Time-signature automation | ❌ | |
 | Locators | ✅ | Add, jump, delete |
 | Arrangement recording (MIDI and audio) | ✅ | Overwrites what it covers |
-| Take lanes / comping | ❌ | |
+| Take lanes / comping | ✅ | Loop recording makes one take per pass; drag across a take, or click it, to comp it onto the timeline |
 | Freeze / flatten | ❌ | |
 
 ## Audio
@@ -67,7 +67,7 @@ This is an honest map of where LoopCraft stands against Ableton Live 12 Suite, a
 | Piano roll: add / move / resize / delete | ✅ | |
 | Velocity lane, note chance | ✅ | |
 | Quantize, transpose, duplicate loop | ✅ | |
-| Multi-note selection, marquee, scale highlighting | ❌ | Single-note selection only |
+| Multi-note selection, marquee, copy / paste, scale highlighting, fold | ✅ | Shift-click, marquee, Ctrl+A / C / V / D, arrow-key nudge and transpose; Alt disables snapping |
 | Groove pool | ✅ | Swing templates, amount, commit to notes |
 | MIDI effects: Arpeggiator, Chord, Scale, Random, Note Length, Velocity, Pitch | ✅ | |
 | Hardware MIDI input | ✅ | Notes to armed (or the selected) tracks; untested with real devices |
@@ -106,11 +106,11 @@ This is an honest map of where LoopCraft stands against Ableton Live 12 Suite, a
 | Feature | Status | Notes |
 |---|---|---|
 | Volume, pan, mute, solo, meters | ✅ | |
-| Sends / returns (returns can feed later returns) | 🟡 | Post-fader only |
+| Sends / returns (returns can feed later returns) | ✅ | Each return can be pre- or post-fader |
 | Group tracks | ✅ | |
 | Track inputs: interface channels, other tracks, master | ✅ | |
-| Track output routing to arbitrary tracks | ❌ | Tracks go to their group or the master |
-| Plugin / device delay compensation | ✅ | Including inside racks and for CLAP plugins that report latency |
+| Track output routing to other tracks | ✅ | Master, group, any other track, or sends only; routes that would loop are refused |
+| Plugin / device delay compensation | ✅ | Including inside racks, along output routes, and for plugins that report latency |
 | Crossfader with A/B assignment | ✅ | |
 | Cue / pre-listen on outputs 3/4 | ✅ | Needs a 4-output interface |
 
@@ -118,12 +118,14 @@ This is an honest map of where LoopCraft stands against Ableton Live 12 Suite, a
 
 | Feature | Status | Notes |
 |---|---|---|
-| CLAP: scan, load, audio, notes | ✅ | |
-| CLAP: parameters (edit, automate, map, save) | ✅ | Via the params extension |
-| CLAP: latency reporting | ✅ | |
-| CLAP: state chunks, plugin editor windows | ❌ | Without GUIs, parameters are the only way a plugin's state changes, and those are saved |
-| CLAP: sidechain and multi-bus ports | ❌ | |
-| VST3, Audio Units | ❌ | VST3 would be an opt-in GPL build feature |
+| CLAP and VST3: scan, load, audio, notes | ✅ | VST3 bundles on Linux; macOS bundle loading is written but untested |
+| CLAP and VST3: parameters (edit, automate, map, save) | ✅ | Edits made in a plugin's own editor flow back into the project |
+| CLAP and VST3: latency reporting | ✅ | Latency changes trigger a rebuild |
+| CLAP and VST3: state saving | ✅ | Base64 in the project; survives graph rebuilds, undo, duplicate, save / reopen, export |
+| Plugin editor windows | 🟡 | Embedded in a host window on Linux / X11 (CLAP and VST3, with the plugin's timers and fds on the host run loop). CLAP falls back to the plugin's floating window elsewhere. No embedding on Windows or macOS yet |
+| Tested against | 🟡 | Only the test plugins in this repo (`examples/`). No commercial or third-party plugin has been tried |
+| Sidechain and multi-bus ports | ❌ | |
+| Audio Units | ❌ | macOS-only; can't be built or tested on the development machine |
 | Scripted devices (a Max for Live alternative) | ❌ | Plan: WASM-sandboxed devices |
 
 ## Control and performance
@@ -159,9 +161,8 @@ This is an honest map of where LoopCraft stands against Ableton Live 12 Suite, a
 The largest remaining gaps, roughly in order of how much they would matter to someone trying to use this for real work:
 
 1. **Listening and hardware testing.** Run it on real interfaces and controllers, measure latency, and fix what that turns up.
-2. **CLAP GUIs and state**, then VST3 behind an opt-in feature. Most people's sounds live in plugins.
-3. **Piano-roll ergonomics:** multi-select, marquee, copy/paste notes, scale highlighting.
-4. **Session → Arrangement recording, Capture MIDI, take lanes.**
-5. **Output routing, pre-fader sends, Drum Rack pad chains.**
-6. **MIDI clock / Link, control-surface scripting.**
-7. **More devices:** Echo, spectral tools, physical models.
+2. **Real plugins.** Try common CLAP and VST3 plugins (Surge XT, Vital, the u-he and FabFilter Linux builds) and fix what breaks; then editor embedding on Windows and macOS, Audio Units, sidechain inputs.
+3. **Drum Rack pad chains**, Repeat / Legato launch modes, crossfades between regions.
+4. **MIDI clock / Link, control-surface scripting.**
+5. **Freeze / flatten, time-signature automation, templates.**
+6. **More devices:** Echo, spectral tools, physical models.

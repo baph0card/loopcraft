@@ -264,6 +264,8 @@ impl App {
     }
 
     pub fn duplicate_track(&mut self, t: usize) {
+        // The copy's plugins start from the originals' current state.
+        self.sync_plugin_states();
         let Some(track) = self.project.tracks.get(t).cloned() else { return };
         if track.kind == TrackKind::Group {
             self.status = "Duplicate the tracks inside the group instead".into();

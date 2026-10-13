@@ -1280,4 +1280,40 @@ pub struct PluginRef {
     /// Parameter values by the plugin's parameter index (empty = defaults).
     #[serde(default)]
     pub params: Vec<f32>,
+    /// Identifies this plugin instance across edits, so the host can keep
+    /// the running instance (and its open editor) when the graph is
+    /// rebuilt. 0 = not assigned yet; `Project::normalized` assigns one.
+    #[serde(default)]
+    pub instance: u64,
+}
+
+impl DeviceSpec {
+    /// Visit every plugin reference in this device, including inside racks.
+    pub fn for_each_plugin_mut(&mut self, f: &mut dyn FnMut(&mut PluginRef)) {
+        match self {
+            DeviceSpec::Plugin(p) => f(p),
+            DeviceSpec::AudioRack(r) | DeviceSpec::InstrumentRack(r) => {
+                for c in r.chains.iter_mut() {
+                    for d in c.devices.iter_mut() {
+                        d.for_each_plugin_mut(f);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn for_each_plugin(&self, f: &mut dyn FnMut(&PluginRef)) {
+        match self {
+            DeviceSpec::Plugin(p) => f(p),
+            DeviceSpec::AudioRack(r) | DeviceSpec::InstrumentRack(r) => {
+                for c in r.chains.iter() {
+                    for d in c.devices.iter() {
+                        d.for_each_plugin(f);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }

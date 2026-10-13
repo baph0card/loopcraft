@@ -5,7 +5,7 @@ use crate::app::App;
 use eframe::egui::{self, RichText};
 use loopcraft_core::*;
 use loopcraft_engine::TrackRef;
-use loopcraft_plugin::{default_clap_paths, scan_clap};
+use loopcraft_plugin::scan_all;
 
 fn item(ui: &mut egui::Ui, label: &str, hint: &str) -> egui::Response {
     ui.add(egui::Button::new(RichText::new(label).size(12.0)).frame(false)).on_hover_text(hint)
@@ -164,34 +164,40 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
         });
 
-        egui::CollapsingHeader::new("Plugins (CLAP)").id_salt("plugins").show(ui, |ui| {
+        egui::CollapsingHeader::new("Plugins (CLAP, VST3)").id_salt("plugins").show(ui, |ui| {
             if ui.small_button("Scan plugin folders").clicked() {
-                let (found, errors) = scan_clap(&default_clap_paths());
-                app.plugin_list = found.into_iter().flat_map(|(path, ps)| ps.into_iter().map(move |p| (path.clone(), p))).collect();
+                let (found, errors) = scan_all();
+                app.plugin_list = found;
                 app.status = format!(
-                    "Found {} CLAP plugin(s){}",
+                    "Found {} plugin(s){}",
                     app.plugin_list.len(),
                     if errors.is_empty() { String::new() } else { format!(", {} failed", errors.len()) }
                 );
             }
             if app.plugin_list.is_empty() {
-                ui.label(RichText::new("Searches ~/.clap, /usr/lib/clap and $CLAP_PATH").size(10.0).color(theme::DIM));
+                ui.label(RichText::new("Searches ~/.clap, ~/.vst3, /usr/lib/clap, /usr/lib/vst3, $CLAP_PATH and $VST3_PATH").size(10.0).color(theme::DIM));
             }
             let list = app.plugin_list.clone();
-            for (path, info) in list {
+            for info in list {
                 if !matches(&info.name) {
                     continue;
                 }
-                let label = format!("{}{}", info.name, if info.is_instrument { "  (inst)" } else { "" });
-                if item(ui, &label, &format!("{} — {}", info.vendor, info.id)).clicked() {
+                let fmt = match info.format {
+                    PluginFormat::Clap => "CLAP",
+                    PluginFormat::Vst3 => "VST3",
+                    PluginFormat::AudioUnit => "AU",
+                };
+                let label = format!("{}{}  {fmt}", info.name, if info.is_instrument { "  (inst)" } else { "" });
+                if item(ui, &label, &format!("{} — {}\n{}", info.vendor, info.id, info.path.display())).clicked() {
                     let spec = DeviceSpec::Plugin(PluginRef {
-                        format: PluginFormat::Clap,
-                        path: path.display().to_string(),
+                        format: info.format,
+                        path: info.path.display().to_string(),
                         id: info.id.clone(),
                         name: info.name.clone(),
                         is_instrument: info.is_instrument,
                         state: None,
                         params: Vec::new(),
+                        instance: 0,
                     });
                     place(app, spec);
                 }

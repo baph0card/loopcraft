@@ -132,6 +132,7 @@ impl App {
     }
 
     pub fn save_to(&mut self, path: &Path) {
+        self.sync_plugin_states();
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -243,6 +244,7 @@ impl App {
     /// Render on a background thread. With `stems`, `path` names a folder
     /// (or a file whose stem names one) and each top-level track gets a file.
     pub fn export(&mut self, path: PathBuf, arrangement: bool, stems: bool, format: usize, rate: u32) {
+        self.sync_plugin_states();
         let project = self.project.clone();
         let base = self.default_dir();
         let (tx, rx) = channel();

@@ -131,10 +131,47 @@ impl Project {
             t.sends.resize(n_returns, -70.0);
             t.slots.resize(n_scenes, None);
         }
+        self.assign_plugin_instances();
         for r in self.returns.iter_mut() {
             r.sends.resize(n_returns, -70.0);
         }
         self
+    }
+
+    /// Give every plugin a unique, nonzero instance id (fixing duplicates
+    /// left by copying a track or device).
+    pub fn assign_plugin_instances(&mut self) {
+        let mut seen = std::collections::HashSet::new();
+        let mut next = self.max_plugin_instance() + 1;
+        self.for_each_plugin_mut(&mut |p| {
+            if p.instance == 0 || !seen.insert(p.instance) {
+                p.instance = next;
+                seen.insert(next);
+                next += 1;
+            }
+        });
+    }
+
+    fn max_plugin_instance(&self) -> u64 {
+        let mut m = 0;
+        self.for_each_plugin(&mut |p| m = m.max(p.instance));
+        m
+    }
+
+    pub fn for_each_plugin_mut(&mut self, f: &mut dyn FnMut(&mut PluginRef)) {
+        for t in self.tracks.iter_mut().chain(self.returns.iter_mut()).chain(std::iter::once(&mut self.master)) {
+            for d in t.instrument.iter_mut().chain(t.effects.iter_mut()) {
+                d.for_each_plugin_mut(f);
+            }
+        }
+    }
+
+    pub fn for_each_plugin(&self, f: &mut dyn FnMut(&PluginRef)) {
+        for t in self.tracks.iter().chain(self.returns.iter()).chain(std::iter::once(&self.master)) {
+            for d in t.instrument.iter().chain(t.effects.iter()) {
+                d.for_each_plugin(f);
+            }
+        }
     }
 
     /// Where track `i`'s audio goes next: a routed track, its group, or

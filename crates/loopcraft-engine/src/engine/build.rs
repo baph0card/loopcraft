@@ -36,6 +36,13 @@ impl loopcraft_dsp::Effect for Passthrough {
 impl Core {
     pub fn from_project(project: &Project, sample_rate: f32, loader: &dyn SampleLoader, plugins: &dyn PluginFactory) -> Self {
         let p = project.clone().normalized();
+        plugins.begin_build();
+        let core = Self::build(&p, sample_rate, loader, plugins);
+        plugins.end_build();
+        core
+    }
+
+    fn build(p: &Project, sample_rate: f32, loader: &dyn SampleLoader, plugins: &dyn PluginFactory) -> Self {
         let sr = sample_rate;
         let n_ret = p.returns.len();
         let sidechain_of = |e: &DeviceSpec| -> Option<usize> {

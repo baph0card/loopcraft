@@ -13,11 +13,27 @@ loopcraft-dsp.workspace = true
 loopcraft-engine.workspace = true
 clap-sys.workspace = true
 libloading.workspace = true
+vst3.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+x11rb.workspace = true
+
+[dev-dependencies]
+x11rb.workspace = true
 
 # A tiny CLAP plugin library (a gain effect and a sine instrument) used by
 # the host tests. `cargo test` builds it to target/<profile>/examples/.
 [[example]]
 name = "clap_test_plugins"
+crate-type = ["cdylib"]
+
+# A VST3 test plugin (gain with a parameter, state and latency), adapted
+# from the vst3 crate's MIT/Apache example.
+[[example]]
+name = "vst3_test_plugin"
 crate-type = ["cdylib"]
 
 [lints]

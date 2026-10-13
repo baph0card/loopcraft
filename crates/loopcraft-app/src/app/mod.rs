@@ -11,6 +11,7 @@ mod devices;
 mod files;
 mod midi_in;
 mod notes;
+mod plugins;
 mod record;
 mod settings;
 #[cfg(test)]
@@ -28,7 +29,7 @@ use crate::audio::{self, DeviceInfo, Output};
 use loopcraft_core::*;
 use loopcraft_engine::{Command, Core, EngineHandle, RtClip, TrackRef, create};
 use loopcraft_io::FileLoader;
-use loopcraft_plugin::{ClapPluginInfo, HostFactory};
+use loopcraft_plugin::{HostFactory, PluginInfo};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -124,7 +125,7 @@ pub struct App {
     output: Option<Output>,
     pub loader: Arc<FileLoader>,
     pub plugins: HostFactory,
-    pub plugin_list: Vec<(PathBuf, ClapPluginInfo)>,
+    pub plugin_list: Vec<PluginInfo>,
     pub settings: Settings,
     pub midi: MidiIn,
 
@@ -237,6 +238,8 @@ impl App {
         let base = path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_else(|| settings.library());
         let loader = Arc::new(FileLoader::new(base, sr));
         let plugins = HostFactory::new();
+        let mut project = project;
+        project.assign_plugin_instances();
         let core = Core::from_project(&project, sr, loader.as_ref(), &plugins);
         let (engine, handle) = create(core);
         let (output, label) = audio::start(&device, out_dev, in_dev, engine);
@@ -355,6 +358,7 @@ impl App {
         let (device, out_dev, in_dev) = audio::probe(&self.settings.audio);
         self.sample_rate = device.sample_rate;
         self.loader = Arc::new(FileLoader::new(self.default_dir(), self.sample_rate));
+        self.project.assign_plugin_instances();
         let core = Core::from_project(&self.project, self.sample_rate, self.loader.as_ref(), &self.plugins);
         let (engine, handle) = create(core);
         let (output, label) = audio::start(&device, out_dev, in_dev, engine);
@@ -388,6 +392,7 @@ impl App {
     pub fn poll(&mut self) {
         self.poll_recordings();
         self.poll_midi();
+        self.poll_plugins();
         if let Some(rx) = &self.export_rx
             && let Ok(msg) = rx.try_recv()
         {
@@ -438,6 +443,7 @@ impl App {
 
     /// Rebuild the engine graph from the project and swap it in.
     pub fn rebuild(&mut self) {
+        self.project.assign_plugin_instances();
         let core = Core::from_project(&self.project, self.sample_rate, self.loader.as_ref(), &self.plugins);
         self.send(Command::SwapCore(Box::new(core)));
         self.report_load_errors();

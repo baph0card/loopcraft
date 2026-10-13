@@ -40,6 +40,11 @@ pub const MAX_HOST_FRAMES: usize = 8192;
 /// Creates third-party plugin devices. Implemented by `loopcraft-plugin`.
 pub trait PluginFactory {
     fn create(&self, plugin: &PluginRef, sample_rate: f32, max_block: usize) -> Option<Device>;
+    /// Called before a graph build asks for its plugins...
+    fn begin_build(&self) {}
+    /// ...and after, so a host can release instances the new graph no
+    /// longer uses (and reuse the ones it does).
+    fn end_build(&self) {}
 }
 
 pub struct NoPlugins;

@@ -62,6 +62,7 @@ mod tests {
             is_instrument: false,
             state: None,
             params: Vec::new(),
+            instance: 0,
         });
         assert_eq!(crate::specs::param_infos(&spec)[0].name, "Cutoff");
         assert_eq!(crate::specs::get_param(&spec, 0), Some(4.0));
