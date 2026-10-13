@@ -102,7 +102,14 @@ pub fn decode(m: [u8; 3]) -> MidiMsg {
 pub fn is_button(t: &MappingTarget) -> bool {
     matches!(
         t,
-        MappingTarget::LaunchClip { .. } | MappingTarget::LaunchScene(_) | MappingTarget::StopTrack(_) | MappingTarget::Play | MappingTarget::Stop | MappingTarget::Mute(_) | MappingTarget::Solo(_) | MappingTarget::Arm(_)
+        MappingTarget::LaunchClip { .. }
+            | MappingTarget::LaunchScene(_)
+            | MappingTarget::StopTrack(_)
+            | MappingTarget::Play
+            | MappingTarget::Stop
+            | MappingTarget::Mute(_)
+            | MappingTarget::Solo(_)
+            | MappingTarget::Arm(_)
     )
 }
 

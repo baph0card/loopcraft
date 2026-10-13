@@ -67,7 +67,13 @@ impl DeviceSpec {
             Sampler(_) => "Sampler",
             MultiSampler(_) => "Multi Sampler",
             DrumRack(_) => "Drum Rack",
-            InstrumentRack(r) | AudioRack(r) => if r.name.is_empty() { if matches!(self, InstrumentRack(_)) { "Instrument Rack" } else { "Audio Effect Rack" } } else { &r.name },
+            InstrumentRack(r) | AudioRack(r) => {
+                if r.name.is_empty() {
+                    if matches!(self, InstrumentRack(_)) { "Instrument Rack" } else { "Audio Effect Rack" }
+                } else {
+                    &r.name
+                }
+            }
             Arpeggiator(_) => "Arpeggiator",
             Chord(_) => "Chord",
             Scale(_) => "Scale",
@@ -183,7 +189,11 @@ pub struct RackParams {
 
 impl Default for RackParams {
     fn default() -> Self {
-        Self { name: String::new(), chains: vec![RackChain::default()], macros: (1..=8).map(|i| Macro { name: format!("Macro {i}"), ..Default::default() }).collect() }
+        Self {
+            name: String::new(),
+            chains: vec![RackChain::default()],
+            macros: (1..=8).map(|i| Macro { name: format!("Macro {i}"), ..Default::default() }).collect(),
+        }
     }
 }
 
@@ -344,7 +354,14 @@ impl Default for FmParams {
     fn default() -> Self {
         let carrier = FmOperator { level: 0.8, env: Adsr { attack: 0.002, decay: 1.0, sustain: 0.5, release: 0.4 }, ..Default::default() };
         let modulator = FmOperator { ratio: 2.0, level: 0.35, env: Adsr { attack: 0.002, decay: 0.5, sustain: 0.2, release: 0.3 }, ..Default::default() };
-        Self { ops: [modulator, FmOperator { level: 0.0, ..modulator }, FmOperator { level: 0.0, ..modulator }, carrier], algorithm: 4, feedback: 0.0, filter_cutoff_hz: 18_000.0, voices: 12, gain_db: -8.0 }
+        Self {
+            ops: [modulator, FmOperator { level: 0.0, ..modulator }, FmOperator { level: 0.0, ..modulator }, carrier],
+            algorithm: 4,
+            feedback: 0.0,
+            filter_cutoff_hz: 18_000.0,
+            voices: 12,
+            gain_db: -8.0,
+        }
     }
 }
 
@@ -911,7 +928,18 @@ pub struct GlueParams {
 
 impl Default for GlueParams {
     fn default() -> Self {
-        Self { threshold_db: -12.0, ratio: 4.0, attack_ms: 3.0, release_ms: 200.0, auto_release: true, makeup_db: 0.0, range_db: 30.0, soft_clip: false, sidechain_track: None, dry_wet: 1.0 }
+        Self {
+            threshold_db: -12.0,
+            ratio: 4.0,
+            attack_ms: 3.0,
+            release_ms: 200.0,
+            auto_release: true,
+            makeup_db: 0.0,
+            range_db: 30.0,
+            soft_clip: false,
+            sidechain_track: None,
+            dry_wet: 1.0,
+        }
     }
 }
 
@@ -967,7 +995,16 @@ pub struct MultibandParams {
 
 impl Default for MultibandParams {
     fn default() -> Self {
-        Self { low_crossover_hz: 120.0, high_crossover_hz: 2_500.0, thresholds_db: [-20.0, -20.0, -20.0], ratios: [3.0, 2.0, 3.0], gains_db: [0.0; 3], attack_ms: 10.0, release_ms: 120.0, amount: 1.0 }
+        Self {
+            low_crossover_hz: 120.0,
+            high_crossover_hz: 2_500.0,
+            thresholds_db: [-20.0, -20.0, -20.0],
+            ratios: [3.0, 2.0, 3.0],
+            gains_db: [0.0; 3],
+            attack_ms: 10.0,
+            release_ms: 120.0,
+            amount: 1.0,
+        }
     }
 }
 
@@ -1209,7 +1246,16 @@ pub struct VocoderParams {
 
 impl Default for VocoderParams {
     fn default() -> Self {
-        Self { bands: 16, carrier: VocoderCarrier::Saw, carrier_hz: 110.0, sidechain_track: None, low_hz: 80.0, high_hz: 10_000.0, release_ms: 40.0, dry_wet: 1.0 }
+        Self {
+            bands: 16,
+            carrier: VocoderCarrier::Saw,
+            carrier_hz: 110.0,
+            sidechain_track: None,
+            low_hz: 80.0,
+            high_hz: 10_000.0,
+            release_ms: 40.0,
+            dry_wet: 1.0,
+        }
     }
 }
 
@@ -1231,4 +1277,7 @@ pub struct PluginRef {
     pub is_instrument: bool,
     /// Opaque saved state, base64 or format-specific.
     pub state: Option<String>,
+    /// Parameter values by the plugin's parameter index (empty = defaults).
+    #[serde(default)]
+    pub params: Vec<f32>,
 }

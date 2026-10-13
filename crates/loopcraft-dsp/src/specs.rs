@@ -14,7 +14,7 @@ use serde_json::Value;
 /// that redraw every frame should cache it.
 pub fn param_infos(spec: &DeviceSpec) -> &'static [ParamInfo] {
     match spec {
-        DeviceSpec::Plugin(_) => &[],
+        DeviceSpec::Plugin(p) => crate::plugin_params::get(&p.id).map(|(i, _)| i).unwrap_or(&[]),
         DeviceSpec::InstrumentRack(r) | DeviceSpec::AudioRack(r) => &crate::rack::MACRO_PARAMS[..r.macros.len().min(8)],
         DeviceSpec::ConvolutionReverb(_) => crate::effects::convolution::PARAMS,
         // Building a Drum Rack or Multi Sampler would touch sample loading; use the static tables.
@@ -32,6 +32,10 @@ fn inner(v: &mut Value) -> Option<&mut Value> {
 /// Current value of parameter `i` (natural units), or `None` if the device
 /// has no such parameter (e.g. an EQ band that doesn't exist).
 pub fn get_param(spec: &DeviceSpec, i: usize) -> Option<f32> {
+    if let DeviceSpec::Plugin(p) = spec {
+        let (_, defaults) = crate::plugin_params::get(&p.id)?;
+        return p.params.get(i).copied().or_else(|| defaults.get(i).copied());
+    }
     let info = param_infos(spec).get(i)?;
     let mut v = serde_json::to_value(spec).ok()?;
     let p = inner(&mut v)?.pointer(&format!("/{}", info.path))?;
@@ -40,6 +44,16 @@ pub fn get_param(spec: &DeviceSpec, i: usize) -> Option<f32> {
 
 /// Write parameter `i` back into the saved spec. Integer fields are rounded.
 pub fn set_param(spec: &mut DeviceSpec, i: usize, value: f32) -> bool {
+    if let DeviceSpec::Plugin(p) = spec {
+        let Some((infos, defaults)) = crate::plugin_params::get(&p.id) else { return false };
+        let Some(info) = infos.get(i) else { return false };
+        if p.params.len() < defaults.len() {
+            let n = p.params.len();
+            p.params.extend_from_slice(&defaults[n..]);
+        }
+        p.params[i] = value.clamp(info.min.min(info.max), info.max.max(info.min));
+        return true;
+    }
     let Some(info) = param_infos(spec).get(i).copied() else { return false };
     let Ok(mut v) = serde_json::to_value(&*spec) else { return false };
     let Some(slot) = inner(&mut v).and_then(|x| x.pointer_mut(&format!("/{}", info.path))) else { return false };

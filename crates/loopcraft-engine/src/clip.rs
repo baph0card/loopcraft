@@ -1,7 +1,7 @@
 //! Real-time clip representation and MIDI event scheduling.
 
-pub use loopcraft_dsp::midi::{EventList, MidiEvent};
 use loopcraft_core::*;
+pub use loopcraft_dsp::midi::{EventList, MidiEvent};
 use loopcraft_dsp::stretch::detect_transients;
 use loopcraft_dsp::{AudioBuffer, SampleLoader};
 use std::sync::Arc;

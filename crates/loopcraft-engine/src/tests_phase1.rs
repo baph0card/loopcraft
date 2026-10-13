@@ -192,10 +192,12 @@ fn process_with_input(e: &mut Engine, input: &[f32], frames: usize) -> Vec<f32> 
 }
 
 fn stereo_sine(hz: f32, frames: usize, amp: f32) -> Vec<f32> {
-    (0..frames).flat_map(|i| {
-        let s = (std::f32::consts::TAU * hz * i as f32 / SR).sin() * amp;
-        [s, s]
-    }).collect()
+    (0..frames)
+        .flat_map(|i| {
+            let s = (std::f32::consts::TAU * hz * i as f32 / SR).sin() * amp;
+            [s, s]
+        })
+        .collect()
 }
 
 #[test]

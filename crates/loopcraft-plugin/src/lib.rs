@@ -6,8 +6,10 @@
 //! only) are planned behind the same [`PluginFactory`] interface.
 //!
 //! Supported today: scanning, descriptor listing, instantiation, stereo
-//! audio processing, and note events for instruments. Not yet: parameter
-//! automation, state save/restore, plugin GUIs, latency compensation.
+//! audio processing, note events for instruments, parameters (shown in the
+//! device view, automatable, mappable and saved with the project) and
+//! reported latency (compensated by the engine). Not yet: plugin state
+//! chunks, plugin editor windows, sidechain and multi-bus ports.
 
 mod clap;
 mod scan;
@@ -16,7 +18,7 @@ pub use clap::{ClapInstance, ClapLibrary, ClapPluginInfo};
 pub use scan::{default_clap_paths, scan_clap};
 
 use loopcraft_core::{PluginFormat, PluginRef};
-use loopcraft_dsp::Device;
+use loopcraft_dsp::{Device, Effect};
 use loopcraft_engine::PluginFactory;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -56,7 +58,11 @@ impl PluginFactory for HostFactory {
         let result = match plugin.format {
             PluginFormat::Clap => self.library(&plugin.path).and_then(|lib| {
                 let info = lib.plugins.iter().find(|p| p.id == plugin.id).cloned().ok_or_else(|| format!("{} not found in {}", plugin.id, plugin.path))?;
-                let inst = ClapInstance::new(lib, &plugin.id, sample_rate as f64, max_block as u32)?;
+                let mut inst = ClapInstance::new(lib, &plugin.id, sample_rate as f64, max_block as u32)?;
+                // Saved parameter values reach the plugin with its first block.
+                for (i, v) in plugin.params.iter().enumerate() {
+                    Effect::set_param(&mut inst, i, *v);
+                }
                 Ok(if info.is_instrument { Device::Instrument(Box::new(inst)) } else { Device::Effect(Box::new(inst)) })
             }),
             PluginFormat::Vst3 => Err("VST3 hosting is not implemented yet".into()),

@@ -473,10 +473,12 @@ mod tests {
     fn clicks(sr: f32, every: usize, n: usize) -> AudioBuffer {
         // Short decaying noise bursts, like hi-hats.
         let mut noise = crate::util::Noise::with_seed(5);
-        let ch: Vec<f32> = (0..n).map(|i| {
-            let t = i % every;
-            if t < 2_000 { noise.next() * (-(t as f32) / 300.0).exp() } else { 0.0 }
-        }).collect();
+        let ch: Vec<f32> = (0..n)
+            .map(|i| {
+                let t = i % every;
+                if t < 2_000 { noise.next() * (-(t as f32) / 300.0).exp() } else { 0.0 }
+            })
+            .collect();
         AudioBuffer { sample_rate: sr, channels: vec![ch] }
     }
 

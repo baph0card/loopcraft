@@ -1,6 +1,7 @@
 //! A minimal CLAP plugin library written against the raw C API, used to
 //! test LoopCraft's host. Contains:
-//!   - `dev.loopcraft.test-gain`: halves the input (audio effect)
+//!   - `dev.loopcraft.test-gain`: gain effect (default 0.5) with one
+//!     parameter ("Gain", id 7) and 16 samples of reported, real latency
 //!   - `dev.loopcraft.test-sine`: monophonic sine (instrument)
 
 #![allow(clippy::missing_safety_doc)]
@@ -8,8 +9,11 @@
 use clap_sys::audio_buffer::clap_audio_buffer;
 use clap_sys::entry::clap_plugin_entry;
 use clap_sys::events::*;
+use clap_sys::ext::latency::{CLAP_EXT_LATENCY, clap_plugin_latency};
+use clap_sys::ext::params::{CLAP_EXT_PARAMS, CLAP_PARAM_IS_AUTOMATABLE, clap_param_info, clap_plugin_params};
 use clap_sys::factory::plugin_factory::{CLAP_PLUGIN_FACTORY_ID, clap_plugin_factory};
 use clap_sys::host::clap_host;
+use clap_sys::id::clap_id;
 use clap_sys::plugin::{clap_plugin, clap_plugin_descriptor};
 use clap_sys::process::{CLAP_PROCESS_CONTINUE, clap_process, clap_process_status};
 use clap_sys::version::CLAP_VERSION;
@@ -47,7 +51,60 @@ struct Data {
     phase: f64,
     freq: f64,
     gate: f32,
+    gain: f64,
+    /// Delay line for the gain effect's latency.
+    delay: [[f32; LATENCY]; 2],
+    pos: usize,
 }
+
+const LATENCY: usize = 16;
+const GAIN_ID: clap_id = 7;
+
+unsafe extern "C" fn p_count(_: *const clap_plugin) -> u32 {
+    1
+}
+unsafe extern "C" fn p_info(_: *const clap_plugin, i: u32, info: *mut clap_param_info) -> bool {
+    if i != 0 {
+        return false;
+    }
+    unsafe {
+        let info = &mut *info;
+        info.id = GAIN_ID;
+        info.flags = CLAP_PARAM_IS_AUTOMATABLE;
+        info.cookie = ptr::null_mut();
+        info.name = [0; 256];
+        for (d, s) in info.name.iter_mut().zip(b"Gain") {
+            *d = *s as c_char;
+        }
+        info.module = [0; 1024];
+        info.min_value = 0.0;
+        info.max_value = 2.0;
+        info.default_value = 0.5;
+    }
+    true
+}
+unsafe extern "C" fn p_value(p: *const clap_plugin, id: clap_id, out: *mut f64) -> bool {
+    if id != GAIN_ID {
+        return false;
+    }
+    unsafe { *out = data(p).gain };
+    true
+}
+unsafe extern "C" fn p_flush(_: *const clap_plugin, _: *const clap_input_events, _: *const clap_output_events) {}
+
+static PARAMS: clap_plugin_params = clap_plugin_params {
+    count: Some(p_count),
+    get_info: Some(p_info),
+    get_value: Some(p_value),
+    value_to_text: None,
+    text_to_value: None,
+    flush: Some(p_flush),
+};
+
+unsafe extern "C" fn latency_get(_: *const clap_plugin) -> u32 {
+    LATENCY as u32
+}
+static LATENCY_EXT: clap_plugin_latency = clap_plugin_latency { get: Some(latency_get) };
 
 unsafe fn data<'a>(p: *const clap_plugin) -> &'a mut Data {
     unsafe { &mut *((*p).plugin_data as *mut Data) }
@@ -69,8 +126,20 @@ unsafe extern "C" fn start(_: *const clap_plugin) -> bool {
 }
 unsafe extern "C" fn stop(_: *const clap_plugin) {}
 unsafe extern "C" fn reset(_: *const clap_plugin) {}
-unsafe extern "C" fn get_extension(_: *const clap_plugin, _: *const c_char) -> *const c_void {
-    ptr::null()
+unsafe extern "C" fn get_extension(p: *const clap_plugin, id: *const c_char) -> *const c_void {
+    unsafe {
+        if data(p).sine {
+            return ptr::null();
+        }
+        let id = CStr::from_ptr(id);
+        if id == CLAP_EXT_PARAMS {
+            &PARAMS as *const _ as *const c_void
+        } else if id == CLAP_EXT_LATENCY {
+            &LATENCY_EXT as *const _ as *const c_void
+        } else {
+            ptr::null()
+        }
+    }
 }
 unsafe extern "C" fn on_main_thread(_: *const clap_plugin) {}
 
@@ -106,11 +175,27 @@ unsafe extern "C" fn process(p: *const clap_plugin, pr: *const clap_process) -> 
                 *or.add(i) = s;
             }
         } else {
+            let ev = &*pr.in_events;
+            let count = ev.size.map(|f| f(ev)).unwrap_or(0);
+            for i in 0..count {
+                let h = ev.get.map(|f| f(ev, i)).unwrap_or(ptr::null());
+                if !h.is_null() && (*h).space_id == CLAP_CORE_EVENT_SPACE_ID && (*h).type_ == CLAP_EVENT_PARAM_VALUE {
+                    let pv = &*(h as *const clap_event_param_value);
+                    if pv.param_id == GAIN_ID {
+                        d.gain = pv.value;
+                    }
+                }
+            }
             let inp: &clap_audio_buffer = &*pr.audio_inputs;
             let (il, ir) = (*inp.data32, *inp.data32.add(1));
+            let g = d.gain as f32;
             for i in 0..n {
-                *ol.add(i) = *il.add(i) * 0.5;
-                *or.add(i) = *ir.add(i) * 0.5;
+                let (l, r) = (*il.add(i), *ir.add(i));
+                *ol.add(i) = d.delay[0][d.pos] * g;
+                *or.add(i) = d.delay[1][d.pos] * g;
+                d.delay[0][d.pos] = l;
+                d.delay[1][d.pos] = r;
+                d.pos = (d.pos + 1) % LATENCY;
             }
         }
     }
@@ -158,6 +243,9 @@ unsafe extern "C" fn create(_: *const clap_plugin_factory, _: *const clap_host, 
         phase: 0.0,
         freq: 440.0,
         gate: 0.0,
+        gain: 0.5,
+        delay: [[0.0; LATENCY]; 2],
+        pos: 0,
     }));
     unsafe {
         (*d).clap.plugin_data = d as *mut c_void;

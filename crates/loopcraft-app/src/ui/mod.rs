@@ -244,7 +244,17 @@ pub fn mappable(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect, target: Mapp
     let color = if mode == MapMode::Midi { theme::MIDI_MAP } else { theme::KEY_MAP };
     let picked = app.map_target == Some(target);
     let p = ui.painter();
-    p.rect_filled(rect, 2.0, color.gamma_multiply(if picked { 0.85 } else if resp.hovered() { 0.6 } else { 0.4 }));
+    p.rect_filled(
+        rect,
+        2.0,
+        color.gamma_multiply(if picked {
+            0.85
+        } else if resp.hovered() {
+            0.6
+        } else {
+            0.4
+        }),
+    );
     let existing = app.project.mappings.iter().find(|m| m.target == target).map(|m| match m.source {
         MappingSource::Cc { channel, cc } => format!("{}/CC{cc}", channel + 1),
         MappingSource::Note { channel, note } => format!("{}/N{note}", channel + 1),
@@ -337,7 +347,9 @@ impl eframe::App for App {
         handle_keys(self, &ctx);
 
         egui::Panel::top("transport").frame(egui::Frame::new().fill(theme::BG).inner_margin(6)).show(ui, |ui| transport::show(self, ui));
-        egui::Panel::bottom("status").frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::symmetric(8, 2))).show(ui, |ui| transport::status_bar(self, ui));
+        egui::Panel::bottom("status")
+            .frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::symmetric(8, 2)))
+            .show(ui, |ui| transport::status_bar(self, ui));
         egui::Panel::left("browser").resizable(true).default_size(190.0).show(ui, |ui| browser::show(self, ui));
         egui::Panel::bottom("detail").resizable(true).default_size(330.0).min_size(220.0).show(ui, |ui| detail::show(self, ui));
         egui::CentralPanel::default_margins().show(ui, |ui| match self.view {
@@ -452,10 +464,12 @@ pub fn knob(ui: &mut egui::Ui, value: &mut f32, min: f32, max: f32, default: f32
     let sweep = std::f32::consts::PI * 1.5;
     let arc = |from: f32, to: f32| -> Vec<egui::Pos2> {
         let n = 24;
-        (0..=n).map(|i| {
-            let a = from + (to - from) * i as f32 / n as f32;
-            c + egui::vec2(a.cos(), a.sin()) * rad
-        }).collect()
+        (0..=n)
+            .map(|i| {
+                let a = from + (to - from) * i as f32 / n as f32;
+                c + egui::vec2(a.cos(), a.sin()) * rad
+            })
+            .collect()
     };
     p.add(egui::Shape::line(arc(a0, a0 + sweep), egui::Stroke::new(3.0, theme::SLOT)));
     if t > 0.0 {

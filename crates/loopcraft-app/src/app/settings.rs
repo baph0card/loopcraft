@@ -18,7 +18,13 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { audio: AudioSettings { input_enabled: true, ..Default::default() }, midi_inputs: Vec::new(), recent: Vec::new(), count_in_bars: 0, library_dir: None }
+        Self {
+            audio: AudioSettings { input_enabled: true, ..Default::default() },
+            midi_inputs: Vec::new(),
+            recent: Vec::new(),
+            count_in_bars: 0,
+            library_dir: None,
+        }
     }
 }
 

@@ -47,7 +47,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
 fn clip_view(app: &mut App, ui: &mut egui::Ui) {
     let Some(cref) = app.selected_clip.filter(|c| app.clip(*c).is_some()) else {
-        ui.label(RichText::new("Click a clip to edit it. Double-click an empty slot on a MIDI track to create one; arm a track and click an empty slot to record.").color(theme::DIM));
+        ui.label(
+            RichText::new("Click a clip to edit it. Double-click an empty slot on a MIDI track to create one; arm a track and click an empty slot to record.")
+                .color(theme::DIM),
+        );
         return;
     };
     ui.horizontal_top(|ui| {
@@ -317,7 +320,13 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             let key = Rect::from_min_size(pos2(rect.left(), y), vec2(keys_w - 2.0, row_h - 0.5));
             p.rect_filled(key, 0.0, if black { Color32::from_gray(40) } else { Color32::from_gray(200) });
             if pitch % 12 == 0 && row_h >= 7.0 {
-                p.text(key.right_center() - vec2(2.0, 0.0), Align2::RIGHT_CENTER, format!("C{}", pitch / 12 - 2), FontId::proportional(row_h.min(10.0)), Color32::BLACK);
+                p.text(
+                    key.right_center() - vec2(2.0, 0.0),
+                    Align2::RIGHT_CENTER,
+                    format!("C{}", pitch / 12 - 2),
+                    FontId::proportional(row_h.min(10.0)),
+                    Color32::BLACK,
+                );
             }
         }
         // Loop start shading.
@@ -347,7 +356,10 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             if (n.pitch as i32) < lo || (n.pitch as i32) > hi {
                 continue;
             }
-            let r = Rect::from_min_max(pos2(x_of(n.start), y_of(n.pitch as i32) + 0.5), pos2(x_of((n.start + n.length).min(len)), y_of(n.pitch as i32) + row_h - 0.5));
+            let r = Rect::from_min_max(
+                pos2(x_of(n.start), y_of(n.pitch as i32) + 0.5),
+                pos2(x_of((n.start + n.length).min(len)), y_of(n.pitch as i32) + row_h - 0.5),
+            );
             let vel = 0.45 + 0.55 * n.velocity as f32 / 127.0;
             let mut fill = theme::dim(color, vel);
             if n.probability < 1.0 {
@@ -367,8 +379,16 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
 
         // Playhead for clips that are playing.
         let pos = match cref {
-            ClipRef::Session { track, slot } => app.engine.state.tracks.get(track).filter(|ts| ts.playing_slot.load(Relaxed) == slot as i32).map(|ts| ts.clip_position.load()),
-            ClipRef::Arrangement { track, index } => app.engine.state.tracks.get(track).filter(|ts| ts.arrangement_clip.load(Relaxed) == index as i32 && ts.playing_slot.load(Relaxed) < 0).map(|ts| ts.clip_position.load()),
+            ClipRef::Session { track, slot } => {
+                app.engine.state.tracks.get(track).filter(|ts| ts.playing_slot.load(Relaxed) == slot as i32).map(|ts| ts.clip_position.load())
+            }
+            ClipRef::Arrangement { track, index } => app
+                .engine
+                .state
+                .tracks
+                .get(track)
+                .filter(|ts| ts.arrangement_clip.load(Relaxed) == index as i32 && ts.playing_slot.load(Relaxed) < 0)
+                .map(|ts| ts.clip_position.load()),
         };
         if let Some(cp) = pos {
             let x = x_of(cp);
@@ -462,7 +482,10 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             let x = x_of(n.start);
             let h = n.velocity as f32 / 127.0 * lane.height();
             let sel = app.piano_selected == Some(i);
-            vp.line_segment([pos2(x + 1.0, lane.bottom()), pos2(x + 1.0, lane.bottom() - h)], Stroke::new(3.0, if sel { Color32::WHITE } else { theme::dim(color, 0.9) }));
+            vp.line_segment(
+                [pos2(x + 1.0, lane.bottom()), pos2(x + 1.0, lane.bottom() - h)],
+                Stroke::new(3.0, if sel { Color32::WHITE } else { theme::dim(color, 0.9) }),
+            );
         }
         if (vresp.dragged() || vresp.clicked())
             && let Some(pos) = vresp.interact_pointer_pos()
@@ -498,7 +521,9 @@ fn waveform(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
     let Some(clip) = app.clip(cref).cloned() else { return };
     let ClipContent::Audio(a) = &clip.content else { return };
     ui.vertical(|ui| {
-        ui.label(RichText::new("Double-click the marker strip to add a warp marker · drag markers to warp · right-click to remove").size(10.0).color(theme::DIM));
+        ui.label(
+            RichText::new("Double-click the marker strip to add a warp marker · drag markers to warp · right-click to remove").size(10.0).color(theme::DIM),
+        );
         let avail = ui.available_size();
         let (rect, resp) = ui.allocate_exact_size(vec2(avail.x.max(200.0), avail.y.max(80.0)), Sense::click_and_drag());
         let p = ui.painter_at(rect);
@@ -550,11 +575,16 @@ fn waveform(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
         let mut hit = None;
         for (i, m) in a.warp_markers.iter().enumerate() {
             let x = x_of(m.beat);
-            let near = resp.hover_pos().is_some_and(|q| (q.x - x).abs() < 6.0 && q.y < strip.bottom() + 4.0) || resp.interact_pointer_pos().is_some_and(|q| (q.x - x).abs() < 6.0 && q.y < strip.bottom() + 4.0);
+            let near = resp.hover_pos().is_some_and(|q| (q.x - x).abs() < 6.0 && q.y < strip.bottom() + 4.0)
+                || resp.interact_pointer_pos().is_some_and(|q| (q.x - x).abs() < 6.0 && q.y < strip.bottom() + 4.0);
             if near {
                 hit = Some(i);
             }
-            p.add(egui::Shape::convex_polygon(vec![pos2(x - 5.0, strip.top()), pos2(x + 5.0, strip.top()), pos2(x, strip.bottom())], if near { Color32::WHITE } else { theme::ACCENT }, Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(
+                vec![pos2(x - 5.0, strip.top()), pos2(x + 5.0, strip.top()), pos2(x, strip.bottom())],
+                if near { Color32::WHITE } else { theme::ACCENT },
+                Stroke::NONE,
+            ));
             p.line_segment([pos2(x, strip.bottom()), pos2(x, wave.bottom())], Stroke::new(1.0, theme::ACCENT.gamma_multiply(0.5)));
         }
         let in_strip = |q: egui::Pos2| q.y < strip.bottom() + 4.0;
@@ -614,8 +644,12 @@ fn waveform(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             app.commit_clip(cref);
         }
         let pos = match cref {
-            ClipRef::Session { track, slot } => app.engine.state.tracks.get(track).filter(|ts| ts.playing_slot.load(Relaxed) == slot as i32).map(|ts| ts.clip_position.load()),
-            ClipRef::Arrangement { track, index } => app.engine.state.tracks.get(track).filter(|ts| ts.arrangement_clip.load(Relaxed) == index as i32).map(|ts| ts.clip_position.load()),
+            ClipRef::Session { track, slot } => {
+                app.engine.state.tracks.get(track).filter(|ts| ts.playing_slot.load(Relaxed) == slot as i32).map(|ts| ts.clip_position.load())
+            }
+            ClipRef::Arrangement { track, index } => {
+                app.engine.state.tracks.get(track).filter(|ts| ts.arrangement_clip.load(Relaxed) == index as i32).map(|ts| ts.clip_position.load())
+            }
         };
         if let Some(cp) = pos {
             let x = x_of(cp);

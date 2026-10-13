@@ -111,7 +111,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         while b < len {
             let x = x_of(b);
             let strong = ((b / bar) % (step_bars * 4.0)).abs() < 1e-6;
-            p.line_segment([pos2(x, area.top() + RULER_H), pos2(x, area.bottom())], Stroke::new(1.0, if strong { theme::LINE } else { theme::dim(theme::LINE, 0.6) }));
+            p.line_segment(
+                [pos2(x, area.top() + RULER_H), pos2(x, area.bottom())],
+                Stroke::new(1.0, if strong { theme::LINE } else { theme::dim(theme::LINE, 0.6) }),
+            );
             b += bar * step_bars;
         }
         if let Some((ls, le)) = app.project.loop_region {
@@ -190,7 +193,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         // Playhead.
         let x = x_of(beat_now);
         p.line_segment([pos2(x, area.top()), pos2(x, area.bottom())], Stroke::new(1.5, theme::ACCENT));
-        p.add(egui::Shape::convex_polygon(vec![Pos2::new(x - 5.0, area.top()), Pos2::new(x + 5.0, area.top()), Pos2::new(x, area.top() + 7.0)], theme::ACCENT, Stroke::NONE));
+        p.add(egui::Shape::convex_polygon(
+            vec![Pos2::new(x - 5.0, area.top()), Pos2::new(x + 5.0, area.top()), Pos2::new(x, area.top() + 7.0)],
+            theme::ACCENT,
+            Stroke::NONE,
+        ));
     });
     app.arr_scroll_x = out.state.offset.x;
 }
@@ -326,12 +333,23 @@ fn ruler(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn tempo_lane(app: &mut App, ui: &mut egui::Ui, p: &egui::Painter, area: Rect, width: f32, x_of: &dyn Fn(f64) -> f32, beat_of: &dyn Fn(f32) -> f64, snap: &dyn Fn(f64) -> f64) {
+fn tempo_lane(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    p: &egui::Painter,
+    area: Rect,
+    width: f32,
+    x_of: &dyn Fn(f64) -> f32,
+    beat_of: &dyn Fn(f32) -> f64,
+    snap: &dyn Fn(f64) -> f64,
+) {
     let y = area.top() + RULER_H;
     let head = Rect::from_min_size(pos2(area.left(), y), vec2(HEAD_W, TEMPO_H));
     p.rect_filled(head.shrink(1.0), 2.0, theme::PANEL);
     p.text(head.left_top() + vec2(8.0, 6.0), Align2::LEFT_TOP, "Tempo", FontId::proportional(12.0), theme::TEXT);
-    if !app.project.tempo_automation.is_empty() && ui.put(Rect::from_min_size(head.left_bottom() + vec2(8.0, -20.0), vec2(50.0, 16.0)), egui::Button::new(RichText::new("Clear").size(10.0))).clicked() {
+    if !app.project.tempo_automation.is_empty()
+        && ui.put(Rect::from_min_size(head.left_bottom() + vec2(8.0, -20.0), vec2(50.0, 16.0)), egui::Button::new(RichText::new("Clear").size(10.0))).clicked()
+    {
         app.checkpoint();
         app.project.tempo_automation.clear();
         app.rebuild();
@@ -406,7 +424,18 @@ struct LaneActions {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn track_lane(app: &mut App, ui: &mut egui::Ui, p: &egui::Painter, area: Rect, width: f32, lane: &Lane, st: &loopcraft_engine::EngineState, x_of: &dyn Fn(f64) -> f32, beat_of: &dyn Fn(f32) -> f64, act: &mut LaneActions) {
+fn track_lane(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    p: &egui::Painter,
+    area: Rect,
+    width: f32,
+    lane: &Lane,
+    st: &loopcraft_engine::EngineState,
+    x_of: &dyn Fn(f64) -> f32,
+    beat_of: &dyn Fn(f32) -> f64,
+    act: &mut LaneActions,
+) {
     let t = lane.track;
     let bar = app.project.time_signature.beats_per_bar();
     let y = area.top() + lane.y;
@@ -436,7 +465,12 @@ fn track_lane(app: &mut App, ui: &mut egui::Ui, p: &egui::Painter, area: Rect, w
     let by = head.top() + LANE_H - 20.0;
     let mut btn = |i: f32, label: &str, on: bool, color: Color32, hint: &str| -> bool {
         let r = Rect::from_min_size(pos2(bx - (i + 1.0) * 20.0, by), vec2(18.0, 16.0));
-        ui.put(r, egui::Button::new(RichText::new(label).size(10.0).color(if on { Color32::BLACK } else { theme::TEXT })).fill(if on { color } else { theme::SLOT })).on_hover_text(hint).clicked()
+        ui.put(
+            r,
+            egui::Button::new(RichText::new(label).size(10.0).color(if on { Color32::BLACK } else { theme::TEXT })).fill(if on { color } else { theme::SLOT }),
+        )
+        .on_hover_text(hint)
+        .clicked()
     };
     let auto_click = btn(0.0, "A", lane.auto.is_some(), theme::ACCENT, "Show an automation lane");
     let solo_click = btn(1.0, "S", solo, theme::SOLO, "Solo");
@@ -447,7 +481,11 @@ fn track_lane(app: &mut App, ui: &mut egui::Ui, p: &egui::Painter, area: Rect, w
         let fresp = ui.interact(fr, ui.id().with(("afold", t)), Sense::click());
         let c = fr.center();
         let s = 4.0;
-        let pts = if !folded { vec![c + vec2(-s, -s * 0.5), c + vec2(s, -s * 0.5), c + vec2(0.0, s * 0.7)] } else { vec![c + vec2(-s * 0.5, -s), c + vec2(-s * 0.5, s), c + vec2(s * 0.7, 0.0)] };
+        let pts = if !folded {
+            vec![c + vec2(-s, -s * 0.5), c + vec2(s, -s * 0.5), c + vec2(0.0, s * 0.7)]
+        } else {
+            vec![c + vec2(-s * 0.5, -s), c + vec2(-s * 0.5, s), c + vec2(s * 0.7, 0.0)]
+        };
         p.add(egui::Shape::convex_polygon(pts, theme::TEXT, Stroke::NONE));
         if fresp.clicked() {
             app.project.tracks[t].folded = !folded;
@@ -525,7 +563,17 @@ fn track_lane(app: &mut App, ui: &mut egui::Ui, p: &egui::Painter, area: Rect, w
         let selected = app.selected_clip == Some(cref);
         let base = theme::rgb(ac.clip.color);
         let active = following && playing_region == i as i32;
-        p.rect_filled(r, 3.0, if !following { theme::dim(base, 0.35) } else if active { base } else { theme::dim(base, 0.75) });
+        p.rect_filled(
+            r,
+            3.0,
+            if !following {
+                theme::dim(base, 0.35)
+            } else if active {
+                base
+            } else {
+                theme::dim(base, 0.75)
+            },
+        );
         p.text(r.left_top() + vec2(4.0, 2.0), Align2::LEFT_TOP, &ac.clip.name, FontId::proportional(10.0), Color32::BLACK);
         draw_clip_preview(app, p, r.shrink2(vec2(2.0, 8.0)).translate(vec2(0.0, 4.0)), ac, ppb);
         if selected {
@@ -552,7 +600,8 @@ fn track_lane(app: &mut App, ui: &mut egui::Ui, p: &egui::Painter, area: Rect, w
                 ArrDragMode::Move
             };
             act.select = Some(cref);
-            act.start_drag = Some(ArrDrag { track: t, index: i, orig_start: ac.start, orig_dur: ac.duration(), orig_offset: ac.offset, press_beat: beat_of(pos.x), mode });
+            act.start_drag =
+                Some(ArrDrag { track: t, index: i, orig_start: ac.start, orig_dur: ac.duration(), orig_offset: ac.offset, press_beat: beat_of(pos.x), mode });
         }
         let at = c_resp.interact_pointer_pos().map(|q| beat_of(q.x));
         c_resp.context_menu(|ui| {
@@ -682,7 +731,13 @@ fn automation_lane(
     let pts: Vec<(f64, f32)> = app.project.tracks[t].automation.iter().find(|l| l.target == target).map(|l| l.points.clone()).unwrap_or_default();
     let color = theme::rgb(app.project.tracks[t].color);
     if pts.is_empty() {
-        p.text(body.left_center() + vec2(8.0, 0.0), Align2::LEFT_CENTER, "Click to add breakpoints · drag to move · right-click to delete", FontId::proportional(10.0), theme::DIM);
+        p.text(
+            body.left_center() + vec2(8.0, 0.0),
+            Align2::LEFT_CENTER,
+            "Click to add breakpoints · drag to move · right-click to delete",
+            FontId::proportional(10.0),
+            theme::DIM,
+        );
     } else {
         let mut last = pos2(body.left(), y_of(pts[0].1));
         for &(b, v) in &pts {

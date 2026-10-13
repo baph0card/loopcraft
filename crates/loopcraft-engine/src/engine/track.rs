@@ -337,7 +337,18 @@ pub(crate) fn render_track_source(t: &mut Track, ctx: &ProcessContext, fx_ctx: &
 
 /// Returns true when a one-shot or region ended inside this chunk.
 #[allow(clippy::too_many_arguments)]
-fn render_audio(a: &RtAudio, clip: &RtClip, place: Placement, b0: Beats, b1: Beats, n: usize, tempo: f64, st: &mut Stretchers, l: &mut [f32], r: &mut [f32]) -> bool {
+fn render_audio(
+    a: &RtAudio,
+    clip: &RtClip,
+    place: Placement,
+    b0: Beats,
+    b1: Beats,
+    n: usize,
+    tempo: f64,
+    st: &mut Stretchers,
+    l: &mut [f32],
+    r: &mut [f32],
+) -> bool {
     let Some(buf) = a.buf.as_deref() else { return false };
     let bpf = (b1 - b0) / n.max(1) as f64;
     let sr = buf.sample_rate as f64;

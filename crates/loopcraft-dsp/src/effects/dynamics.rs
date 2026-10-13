@@ -159,8 +159,11 @@ impl Effect for GlueCompressor {
 // Limiter
 // ---------------------------------------------------------------------------
 
-const LIMITER_PARAMS: &[ParamInfo] =
-    &[ParamInfo::new("Gain", 0.0, 24.0, "dB").at("gain_db"), ParamInfo::new("Ceiling", -12.0, 0.0, "dB").at("ceiling_db"), ParamInfo::new("Release", 1.0, 1000.0, "ms").at("release_ms")];
+const LIMITER_PARAMS: &[ParamInfo] = &[
+    ParamInfo::new("Gain", 0.0, 24.0, "dB").at("gain_db"),
+    ParamInfo::new("Ceiling", -12.0, 0.0, "dB").at("ceiling_db"),
+    ParamInfo::new("Release", 1.0, 1000.0, "ms").at("release_ms"),
+];
 
 /// Brickwall lookahead limiter. The required gain of every incoming sample
 /// is pushed through a sliding-window minimum and a moving average over
@@ -333,7 +336,8 @@ pub struct Gate {
 
 impl Gate {
     pub fn new(p: GateParams, sr: f32) -> Self {
-        let mut g = Self { p, sr, det: EnvFollower::new(0.1, 5.0, sr), open: false, hold_left: 0, g: 0.0, att: 0.0, rel: 0.0, key: vec![0.0; MAX_BLOCK], key_len: 0 };
+        let mut g =
+            Self { p, sr, det: EnvFollower::new(0.1, 5.0, sr), open: false, hold_left: 0, g: 0.0, att: 0.0, rel: 0.0, key: vec![0.0; MAX_BLOCK], key_len: 0 };
         g.update();
         g
     }

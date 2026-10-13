@@ -47,7 +47,18 @@ pub struct MultiSampler {
 impl MultiSampler {
     pub fn new(p: MultiSamplerParams, sr: f32, loader: &dyn SampleLoader) -> Self {
         let zones = p.zones.iter().map(|z| Zone { buf: loader.load(&z.file), gain: db_to_gain(z.gain_db), spec: z.clone() }).collect();
-        let v = Voice { zone: 0, note: 0, vel: 0.0, pos: 0.0, rate: 1.0, target_rate: 1.0, env: Envelope::new(p.amp_env, sr), filt: [Svf::default(); 2], age: 0, held: false };
+        let v = Voice {
+            zone: 0,
+            note: 0,
+            vel: 0.0,
+            pos: 0.0,
+            rate: 1.0,
+            target_rate: 1.0,
+            env: Envelope::new(p.amp_env, sr),
+            filt: [Svf::default(); 2],
+            age: 0,
+            held: false,
+        };
         Self { voices: vec![v; p.voices.clamp(1, 128)], zones, gain: db_to_gain(p.gain_db), p, sr, clock: 0, last_rate: 0.0 }
     }
 
@@ -68,7 +79,10 @@ impl MultiSampler {
     }
 
     fn alloc(&mut self) -> usize {
-        self.voices.iter().position(|v| !v.env.is_active()).unwrap_or_else(|| self.voices.iter().enumerate().min_by_key(|(_, v)| (!v.env.is_releasing(), v.age)).map(|(i, _)| i).unwrap_or(0))
+        self.voices
+            .iter()
+            .position(|v| !v.env.is_active())
+            .unwrap_or_else(|| self.voices.iter().enumerate().min_by_key(|(_, v)| (!v.env.is_releasing(), v.age)).map(|(i, _)| i).unwrap_or(0))
     }
 }
 
@@ -187,7 +201,10 @@ mod tests {
 
     fn tone(hz: f32, secs: f32) -> Arc<AudioBuffer> {
         let sr = 48_000.0;
-        Arc::new(AudioBuffer { sample_rate: sr, channels: vec![(0..(sr * secs) as usize).map(|i| (std::f32::consts::TAU * hz * i as f32 / sr).sin() * 0.5).collect()] })
+        Arc::new(AudioBuffer {
+            sample_rate: sr,
+            channels: vec![(0..(sr * secs) as usize).map(|i| (std::f32::consts::TAU * hz * i as f32 / sr).sin() * 0.5).collect()],
+        })
     }
 
     fn freq(buf: &[f32]) -> f32 {

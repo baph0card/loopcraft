@@ -49,8 +49,8 @@ pub fn synth_ir(decay_s: f32, sr: f32) -> AudioBuffer {
 }
 
 struct Channel {
-    head: Vec<f32>,     // first B taps, reversed for the FIR
-    hist: Vec<f32>,     // input history for the FIR (ring, 2B)
+    head: Vec<f32>, // first B taps, reversed for the FIR
+    hist: Vec<f32>, // input history for the FIR (ring, 2B)
     hpos: usize,
     parts: Vec<Vec<Complex32>>, // spectra of tail partitions
     fdl: Vec<Vec<Complex32>>,   // frequency-domain delay line

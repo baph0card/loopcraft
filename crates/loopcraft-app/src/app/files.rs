@@ -202,7 +202,11 @@ impl App {
         });
         self.save_to(&path);
         self.rebuild();
-        self.status = if failed.is_empty() { format!("Collected {copied} file(s) and saved") } else { format!("Collected {copied}; couldn't copy {}", failed.join(", ")) };
+        self.status = if failed.is_empty() {
+            format!("Collected {copied} file(s) and saved")
+        } else {
+            format!("Collected {copied}; couldn't copy {}", failed.join(", "))
+        };
     }
 
     pub fn default_dir(&self) -> PathBuf {
@@ -257,15 +261,18 @@ impl App {
             let host = HostFactory::new();
             let msg = if stems {
                 let dir = path.with_extension("");
-                let res = std::fs::create_dir_all(&dir).map_err(anyhow::Error::from).and_then(|_| loopcraft_io::render_stems(&project, &base, &opts, &host)).and_then(|stems| {
-                    let n = stems.len();
-                    for (i, (name, r)) in stems.iter().enumerate() {
-                        let safe: String = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' }).collect();
-                        let f = dir.join(format!("{:02} {safe}.{ext}", i + 1));
-                        loopcraft_io::write_audio(&f, &r.left, &r.right, rate, depth)?;
-                    }
-                    Ok(n)
-                });
+                let res = std::fs::create_dir_all(&dir)
+                    .map_err(anyhow::Error::from)
+                    .and_then(|_| loopcraft_io::render_stems(&project, &base, &opts, &host))
+                    .and_then(|stems| {
+                        let n = stems.len();
+                        for (i, (name, r)) in stems.iter().enumerate() {
+                            let safe: String = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' }).collect();
+                            let f = dir.join(format!("{:02} {safe}.{ext}", i + 1));
+                            loopcraft_io::write_audio(&f, &r.left, &r.right, rate, depth)?;
+                        }
+                        Ok(n)
+                    });
                 match res {
                     Ok(n) => format!("Exported {n} stems to {}", dir.display()),
                     Err(e) => format!("Export failed: {e:#}"),
@@ -276,7 +283,11 @@ impl App {
                     loopcraft_io::write_audio(&path, &r.left, &r.right, rate, depth).map(|_| (r.seconds(), peak))
                 }) {
                     Ok((secs, peak)) => {
-                        let clip = if peak > 1.0 { format!(" — peak {:+.1} dBFS, clipped", gain_to_db(peak)) } else { format!(" — peak {:+.1} dBFS", gain_to_db(peak)) };
+                        let clip = if peak > 1.0 {
+                            format!(" — peak {:+.1} dBFS, clipped", gain_to_db(peak))
+                        } else {
+                            format!(" — peak {:+.1} dBFS", gain_to_db(peak))
+                        };
                         format!("Exported {secs:.1}s to {}{clip}", path.display())
                     }
                     Err(e) => format!("Export failed: {e:#}"),

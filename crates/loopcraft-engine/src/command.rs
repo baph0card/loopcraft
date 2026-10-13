@@ -90,7 +90,9 @@ pub struct AudioRecord {
 pub enum Command {
     Play,
     /// Start playback after the project's count-in.
-    PlayWithCountIn { bars: u32 },
+    PlayWithCountIn {
+        bars: u32,
+    },
     /// First press stops; the UI usually sends `Seek(0.0)` on a second press.
     Stop,
     Seek(Beats),

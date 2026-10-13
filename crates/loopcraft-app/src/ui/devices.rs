@@ -59,7 +59,11 @@ fn device_box(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef, pa
     let top = path.is_empty();
     let bypassed = top && app.is_bypassed(ch, dev);
     let collapsed = top && app.collapsed_devices.contains(&(ch, dev));
-    let stroke = if app.macro_learn.is_some_and(|m| m.channel == ch && m.device == dev) && top { Stroke::new(1.5, theme::ACCENT) } else { Stroke::new(1.0, theme::LINE) };
+    let stroke = if app.macro_learn.is_some_and(|m| m.channel == ch && m.device == dev) && top {
+        Stroke::new(1.5, theme::ACCENT)
+    } else {
+        Stroke::new(1.0, theme::LINE)
+    };
     egui::Frame::new().fill(if bypassed { theme::dim(theme::BG, 0.8) } else { theme::BG }).stroke(stroke).corner_radius(4).inner_margin(6).show(ui, |ui| {
         ui.vertical(|ui| {
             let w = match spec {
@@ -103,7 +107,10 @@ fn device_box(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef, pa
                                 app.open_preset_dialog(spec.clone());
                                 ui.close();
                             }
-                            if !spec.is_midi_effect() && !matches!(spec, DeviceSpec::AudioRack(_) | DeviceSpec::InstrumentRack(_)) && ui.button("Group into a rack").clicked() {
+                            if !spec.is_midi_effect()
+                                && !matches!(spec, DeviceSpec::AudioRack(_) | DeviceSpec::InstrumentRack(_))
+                                && ui.button("Group into a rack").clicked()
+                            {
                                 app.wrap_in_rack(ch, dev);
                                 ui.close();
                             }
@@ -117,7 +124,15 @@ fn device_box(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef, pa
             ui.separator();
             if let DeviceSpec::Plugin(p) = spec {
                 ui.label(RichText::new(format!("CLAP · {}", p.id)).size(10.0).color(theme::DIM));
-                ui.label(RichText::new("Plugin parameters and editor windows aren't supported yet;\nthe plugin runs with its default state.").size(10.0).color(theme::DIM));
+                if specs::param_infos(spec).is_empty() {
+                    ui.label(RichText::new("No parameters exposed (or the plugin failed to load).").size(10.0).color(theme::DIM));
+                } else {
+                    egui::ScrollArea::vertical()
+                        .id_salt(("plugparams", box_key(ch, dev, path)))
+                        .max_height(220.0)
+                        .show(ui, |ui| params(app, ui, ch, dev, path, spec));
+                }
+                ui.label(RichText::new("Plugin editor windows aren't supported yet.").size(9.0).color(theme::DIM));
                 return;
             }
             if let DeviceSpec::AudioRack(r) | DeviceSpec::InstrumentRack(r) = spec {
@@ -141,7 +156,8 @@ fn params(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef, path: 
         let Some(mut v) = specs::get_param(spec, i) else { continue };
         let log = matches!(info.unit, "Hz" | "ms" | "s") && info.min > 0.0;
         let row = ui.horizontal(|ui| {
-            let label = ui.add_sized([70.0, 16.0], egui::Label::new(RichText::new(info.name).size(11.0).color(theme::DIM)).truncate().sense(egui::Sense::click()));
+            let label =
+                ui.add_sized([70.0, 16.0], egui::Label::new(RichText::new(info.name).size(11.0).color(theme::DIM)).truncate().sense(egui::Sense::click()));
             ui.spacing_mut().slider_width = 92.0;
             let slider = egui::Slider::new(&mut v, info.min..=info.max).logarithmic(log).suffix(format!(" {}", info.unit)).max_decimals(2);
             if ui.add(slider).changed() {
@@ -199,7 +215,21 @@ fn rack_body(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef, pat
                 ui.set_width(62.0);
                 let mut v = m.value;
                 let learning = app.macro_learn.is_some_and(|l| l.channel == ch && l.device == dev && l.macro_index == i) && top;
-                let r = knob(ui, &mut v, 0.0, 1.0, 0.0, 30.0, if learning { theme::REC } else if m.mappings.is_empty() { theme::DIM } else { theme::ACCENT });
+                let r = knob(
+                    ui,
+                    &mut v,
+                    0.0,
+                    1.0,
+                    0.0,
+                    30.0,
+                    if learning {
+                        theme::REC
+                    } else if m.mappings.is_empty() {
+                        theme::DIM
+                    } else {
+                        theme::ACCENT
+                    },
+                );
                 if r.changed() {
                     if top {
                         app.set_param(ch, dev, i, v);
@@ -336,7 +366,9 @@ fn enum_names<T: serde::Serialize>(v: &[T]) -> Vec<String> {
 }
 
 fn enum_lists() -> Vec<(&'static [&'static str], Vec<String>)> {
-    use loopcraft_core::{AmpModel as A, ArpStyle as S, EqBandKind as E, FilterMode as F, LfoShape as L, VocoderCarrier as V, Waveform as W, WavetableKind as T};
+    use loopcraft_core::{
+        AmpModel as A, ArpStyle as S, EqBandKind as E, FilterMode as F, LfoShape as L, VocoderCarrier as V, Waveform as W, WavetableKind as T,
+    };
     vec![
         (&["table1", "table2", "table"], enum_names(&[T::Basic, T::Harmonics, T::Pulse, T::Formant, T::Sync])),
         (&["osc1", "osc2", "waveform", "wave"], enum_names(&[W::Saw, W::Square, W::Triangle, W::Sine, W::Noise])),
@@ -427,18 +459,22 @@ fn walk(ui: &mut egui::Ui, cx: &mut Ctx, v: &mut Value, path: &str, key: &str, l
             if key.ends_with("file") {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(label).size(11.0).color(theme::DIM));
-                    egui::ComboBox::from_id_salt((&cx.id, path)).width(150.0).selected_text(RichText::new(if s.is_empty() { "(none)" } else { s.as_str() }).size(10.0)).show_ui(ui, |ui| {
-                        for f in cx.samples {
-                            if ui.selectable_label(s == f, f).clicked() {
-                                *s = f.clone();
-                                cx.changed = true;
+                    egui::ComboBox::from_id_salt((&cx.id, path))
+                        .width(150.0)
+                        .selected_text(RichText::new(if s.is_empty() { "(none)" } else { s.as_str() }).size(10.0))
+                        .show_ui(ui, |ui| {
+                            for f in cx.samples {
+                                if ui.selectable_label(s == f, f).clicked() {
+                                    *s = f.clone();
+                                    cx.changed = true;
+                                }
                             }
-                        }
-                    });
+                        });
                 });
                 return;
             }
-            let list = cx.lists.iter().find(|(keys, vals)| keys.contains(&key) && vals.contains(s)).or_else(|| cx.lists.iter().find(|(_, vals)| vals.contains(s)));
+            let list =
+                cx.lists.iter().find(|(keys, vals)| keys.contains(&key) && vals.contains(s)).or_else(|| cx.lists.iter().find(|(_, vals)| vals.contains(s)));
             if let Some((_, vals)) = list {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(label).size(11.0).color(theme::DIM));
@@ -541,22 +577,25 @@ fn drum_pads(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef, pat
                     PadSource::Synth(v) => format!("{v:?}"),
                     PadSource::Sample(f) => std::path::Path::new(f).file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
                 };
-                egui::ComboBox::from_id_salt(("padsrc", i, box_key(ch, dev, path))).width(90.0).selected_text(RichText::new(label).size(10.0)).show_ui(ui, |ui| {
-                    use DrumVoice::*;
-                    for v in [Kick, Snare, ClosedHat, OpenHat, Clap, Tom, Rim, Cowbell] {
-                        if ui.selectable_label(matches!(&pad.source, PadSource::Synth(x) if *x == v), format!("{v:?}")).clicked() {
-                            pad.source = PadSource::Synth(v);
-                            changed = true;
+                egui::ComboBox::from_id_salt(("padsrc", i, box_key(ch, dev, path))).width(90.0).selected_text(RichText::new(label).size(10.0)).show_ui(
+                    ui,
+                    |ui| {
+                        use DrumVoice::*;
+                        for v in [Kick, Snare, ClosedHat, OpenHat, Clap, Tom, Rim, Cowbell] {
+                            if ui.selectable_label(matches!(&pad.source, PadSource::Synth(x) if *x == v), format!("{v:?}")).clicked() {
+                                pad.source = PadSource::Synth(v);
+                                changed = true;
+                            }
                         }
-                    }
-                    ui.separator();
-                    for f in &samples {
-                        if ui.selectable_label(matches!(&pad.source, PadSource::Sample(x) if x == f), f).clicked() {
-                            pad.source = PadSource::Sample(f.clone());
-                            changed = true;
+                        ui.separator();
+                        for f in &samples {
+                            if ui.selectable_label(matches!(&pad.source, PadSource::Sample(x) if x == f), f).clicked() {
+                                pad.source = PadSource::Sample(f.clone());
+                                changed = true;
+                            }
                         }
-                    }
-                });
+                    },
+                );
                 changed |= ui.add(egui::DragValue::new(&mut pad.gain_db).range(-40.0..=12.0).speed(0.1).suffix("dB")).changed();
                 changed |= ui.add(egui::DragValue::new(&mut pad.tune_semitones).range(-24.0..=24.0).speed(0.1).suffix("st")).changed();
                 let mut choke = pad.choke_group.unwrap_or(0);
@@ -588,35 +627,43 @@ fn zones(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef, path: &
     let samples = app.sample_files();
     let mut m2 = m.clone();
     let mut changed = false;
-    egui::CollapsingHeader::new(RichText::new(format!("Zones ({})", m.zones.len())).size(11.0)).id_salt(("zones", box_key(ch, dev, path))).default_open(m.zones.is_empty()).show(ui, |ui| {
-        let mut remove = None;
-        for (i, z) in m2.zones.iter_mut().enumerate() {
-            ui.horizontal(|ui| {
-                let name = std::path::Path::new(&z.file).file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-                ui.label(RichText::new(name).size(10.0));
-                changed |= ui.add(egui::DragValue::new(&mut z.root_key).range(0..=127).prefix("root ")).changed();
-                changed |= ui.add(egui::DragValue::new(&mut z.key_range.0).range(0..=127).prefix("keys ")).changed();
-                changed |= ui.add(egui::DragValue::new(&mut z.key_range.1).range(0..=127).prefix("to ")).changed();
-                if ui.small_button("x").clicked() {
-                    remove = Some(i);
+    egui::CollapsingHeader::new(RichText::new(format!("Zones ({})", m.zones.len())).size(11.0))
+        .id_salt(("zones", box_key(ch, dev, path)))
+        .default_open(m.zones.is_empty())
+        .show(ui, |ui| {
+            let mut remove = None;
+            for (i, z) in m2.zones.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    let name = std::path::Path::new(&z.file).file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    ui.label(RichText::new(name).size(10.0));
+                    changed |= ui.add(egui::DragValue::new(&mut z.root_key).range(0..=127).prefix("root ")).changed();
+                    changed |= ui.add(egui::DragValue::new(&mut z.key_range.0).range(0..=127).prefix("keys ")).changed();
+                    changed |= ui.add(egui::DragValue::new(&mut z.key_range.1).range(0..=127).prefix("to ")).changed();
+                    if ui.small_button("x").clicked() {
+                        remove = Some(i);
+                    }
+                });
+            }
+            if let Some(i) = remove {
+                m2.zones.remove(i);
+                changed = true;
+            }
+            egui::ComboBox::from_id_salt(("addzone", box_key(ch, dev, path))).selected_text("+ Zone from sample…").width(160.0).show_ui(ui, |ui| {
+                for f in &samples {
+                    if ui.selectable_label(false, f).clicked() {
+                        // Spread new zones up the keyboard, one octave each.
+                        let root = 48 + 12 * m2.zones.len() as u8 % 72;
+                        m2.zones.push(SampleZone {
+                            file: f.clone(),
+                            root_key: root,
+                            key_range: (root.saturating_sub(6), (root + 5).min(127)),
+                            ..Default::default()
+                        });
+                        changed = true;
+                    }
                 }
             });
-        }
-        if let Some(i) = remove {
-            m2.zones.remove(i);
-            changed = true;
-        }
-        egui::ComboBox::from_id_salt(("addzone", box_key(ch, dev, path))).selected_text("+ Zone from sample…").width(160.0).show_ui(ui, |ui| {
-            for f in &samples {
-                if ui.selectable_label(false, f).clicked() {
-                    // Spread new zones up the keyboard, one octave each.
-                    let root = 48 + 12 * m2.zones.len() as u8 % 72;
-                    m2.zones.push(SampleZone { file: f.clone(), root_key: root, key_range: (root.saturating_sub(6), (root + 5).min(127)), ..Default::default() });
-                    changed = true;
-                }
-            }
         });
-    });
     if changed {
         write_back(app, ch, dev, path, DeviceSpec::MultiSampler(m2));
     }

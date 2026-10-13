@@ -45,8 +45,27 @@ fn effect_processes_audio() {
     let mut l = vec![0.8; 1000];
     let mut r = vec![-0.4; 1000];
     Effect::process(&mut fx, &ctx, &mut l, &mut r);
-    assert!(l.iter().all(|&x| (x - 0.4).abs() < 1e-6));
-    assert!(r.iter().all(|&x| (x + 0.2).abs() < 1e-6));
+    // The test plugin delays by the latency it reports.
+    assert_eq!(fx.latency(), 16);
+    assert!(l[..16].iter().all(|&x| x == 0.0));
+    assert!(l[16..].iter().all(|&x| (x - 0.4).abs() < 1e-6));
+    assert!(r[16..].iter().all(|&x| (x + 0.2).abs() < 1e-6));
+}
+
+#[test]
+fn parameters_are_listed_and_set() {
+    let lib = Arc::new(ClapLibrary::load(&plugin_lib()).unwrap());
+    let mut fx = ClapInstance::new(lib, "dev.loopcraft.test-gain", 48_000.0, 256).unwrap();
+    let params = Effect::params(&fx);
+    assert_eq!(params.len(), 1);
+    assert_eq!((params[0].name, params[0].min, params[0].max), ("Gain", 0.0, 2.0));
+    // The table is registered for the UI / saved specs too.
+    assert_eq!(loopcraft_dsp::plugin_params::get("dev.loopcraft.test-gain").unwrap().1, vec![0.5]);
+    Effect::set_param(&mut fx, 0, 2.0);
+    let ctx = ProcessContext::new(48_000.0, 120.0);
+    let (mut l, mut r) = (vec![0.25; 256], vec![0.25; 256]);
+    Effect::process(&mut fx, &ctx, &mut l, &mut r);
+    assert!((l[100] - 0.5).abs() < 1e-6, "gain 2.0 applied: {}", l[100]);
 }
 
 #[test]
@@ -74,9 +93,18 @@ fn engine_hosts_plugins_from_a_project() {
         name: "Test Sine".into(),
         is_instrument: true,
         state: None,
+        params: Vec::new(),
     };
-    let gain =
-        PluginRef { format: PluginFormat::Clap, path, id: "dev.loopcraft.test-gain".into(), name: "Test Gain".into(), is_instrument: false, state: None };
+    // Saved parameter value: gain 1.0 instead of the default 0.5.
+    let gain = PluginRef {
+        format: PluginFormat::Clap,
+        path,
+        id: "dev.loopcraft.test-gain".into(),
+        name: "Test Gain".into(),
+        is_instrument: false,
+        state: None,
+        params: vec![1.0],
+    };
     let t = p.add_track(Track::midi("Plugin", DeviceSpec::Plugin(synth)).with_effect(DeviceSpec::Plugin(gain)));
     p.tracks[t].slots[0] = Some(Clip::midi("a", 4.0, vec![Note::new(69, 0.0, 4.0, 127)]));
 
@@ -87,7 +115,9 @@ fn engine_hosts_plugins_from_a_project() {
     h.send(Command::LaunchClip { track: 0, slot: 0 }).ok();
     let (mut l, mut r) = (vec![0.0; 4800], vec![0.0; 4800]);
     e.process(&mut l, &mut r);
-    // Sine at 0.5 amplitude through the 0.5 gain plugin.
+    // Sine at 0.5 amplitude through the plugin at its saved gain of 1.0.
     let pk = peak(&l);
-    assert!((pk - 0.25).abs() < 0.01, "peak {pk}");
+    assert!((pk - 0.5).abs() < 0.01, "peak {pk}");
+    // The plugin's latency is reported to the engine's delay compensation.
+    assert_eq!(e.core().latency(), 16);
 }

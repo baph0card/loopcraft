@@ -85,7 +85,9 @@ pub fn probe_none() -> (DeviceInfo, Option<cpal::Device>, Option<cpal::Device>) 
 pub enum Output {
     #[allow(dead_code)] // held to keep the streams alive
     Device(cpal::Stream, Option<cpal::Stream>),
-    Null { stop: Arc<AtomicBool> },
+    Null {
+        stop: Arc<AtomicBool>,
+    },
 }
 
 impl Drop for Output {

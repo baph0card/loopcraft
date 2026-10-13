@@ -258,7 +258,13 @@ impl Core {
             ts.recording.store(true, Relaxed);
             let slot = self.recordings.iter().rev().find(|r| r.track == track).and_then(|r| match &r.kind {
                 RecKind::Midi(b) => b.slot(),
-                RecKind::Audio(a) => if let RecTarget::Slot(s) = a.target { Some(s) } else { None },
+                RecKind::Audio(a) => {
+                    if let RecTarget::Slot(s) = a.target {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                }
             });
             ts.recording_slot.store(slot.map_or(NONE, |s| s as i32), Relaxed);
         }
@@ -301,7 +307,11 @@ impl Core {
             t.live[t.live_len] = (on, note, vel);
             t.live_len += 1;
         }
-        let playing_clip = self.tracks.get(track).and_then(|t| t.session).zip(self.tracks.get(track).and_then(|t| t.session.and_then(|s| t.slots.get(s.slot)).and_then(|c| c.as_ref().map(|c| (c.length, c.loop_start, c.looping)))));
+        let playing_clip = self.tracks.get(track).and_then(|t| t.session).zip(
+            self.tracks
+                .get(track)
+                .and_then(|t| t.session.and_then(|s| t.slots.get(s.slot)).and_then(|c| c.as_ref().map(|c| (c.length, c.loop_start, c.looping)))),
+        );
         for rec in self.recordings.iter_mut() {
             if rec.track != track || beat + 1e-9 < rec.start {
                 continue;

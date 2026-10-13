@@ -130,7 +130,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             app.toggle_arrangement_record();
         }
         let sess_rec = app.engine.state.tracks.iter().any(|t| t.recording_slot.load(Relaxed) >= 0);
-        if small_toggle(ui, sess_rec, "Sess Rec", theme::REC).on_hover_text("Session Record: record armed tracks into the selected scene; overdub playing MIDI clips").clicked() {
+        if small_toggle(ui, sess_rec, "Sess Rec", theme::REC)
+            .on_hover_text("Session Record: record armed tracks into the selected scene; overdub playing MIDI clips")
+            .clicked()
+        {
             app.session_record();
         }
         let count = st.count_in_left.load();
@@ -186,7 +189,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if small_toggle(ui, app.map_mode == Some(MapMode::Key), "KEY", theme::KEY_MAP).on_hover_text("Key Map mode (Ctrl+K)").clicked() {
             toggle_map(app, MapMode::Key);
         }
-        let kb = small_toggle(ui, app.computer_keys, "Keys", theme::ACCENT).on_hover_text("Play armed (or the selected) MIDI tracks with A–K; Z/X octave, C/V velocity");
+        let kb = small_toggle(ui, app.computer_keys, "Keys", theme::ACCENT)
+            .on_hover_text("Play armed (or the selected) MIDI tracks with A–K; Z/X octave, C/V velocity");
         if kb.clicked() {
             app.computer_keys = !app.computer_keys;
         }

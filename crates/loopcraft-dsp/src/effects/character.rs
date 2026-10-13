@@ -261,10 +261,12 @@ mod tests {
         }
         let mut d = DrumBuss::new(DrumBussParams { drive: 1.0, crunch: 1.0, boom: 1.0, boom_decay: 1.0, transients: 1.0, ..Default::default() }, sr);
         // Kick-like hits: decaying 55 Hz bursts every quarter second.
-        let l0: Vec<f32> = (0..48_000).map(|i| {
-            let t = (i % 12_000) as f32 / sr;
-            (std::f32::consts::TAU * 55.0 * t).sin() * (-t / 0.03).exp()
-        }).collect();
+        let l0: Vec<f32> = (0..48_000)
+            .map(|i| {
+                let t = (i % 12_000) as f32 / sr;
+                (std::f32::consts::TAU * 55.0 * t).sin() * (-t / 0.03).exp()
+            })
+            .collect();
         let mut l = l0.clone();
         let mut r = l.clone();
         d.process(&ProcessContext::new(sr, 120.0), &mut l, &mut r);

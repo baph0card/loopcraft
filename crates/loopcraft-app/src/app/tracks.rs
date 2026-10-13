@@ -23,8 +23,16 @@ fn remap_track_refs(p: &mut Project, map: &dyn Fn(usize) -> Option<usize>) {
     p.mappings.retain_mut(|m| {
         let r = |i: usize| map(i);
         let t = match &mut m.target {
-            MappingTarget::Volume(i) | MappingTarget::Pan(i) | MappingTarget::StopTrack(i) | MappingTarget::Mute(i) | MappingTarget::Solo(i) | MappingTarget::Arm(i) => i,
-            MappingTarget::Send { track, .. } | MappingTarget::DeviceParam { track, .. } | MappingTarget::InstrumentParam { track, .. } | MappingTarget::LaunchClip { track, .. } => track,
+            MappingTarget::Volume(i)
+            | MappingTarget::Pan(i)
+            | MappingTarget::StopTrack(i)
+            | MappingTarget::Mute(i)
+            | MappingTarget::Solo(i)
+            | MappingTarget::Arm(i) => i,
+            MappingTarget::Send { track, .. }
+            | MappingTarget::DeviceParam { track, .. }
+            | MappingTarget::InstrumentParam { track, .. }
+            | MappingTarget::LaunchClip { track, .. } => track,
             _ => return true,
         };
         match r(*t) {
@@ -190,7 +198,8 @@ impl App {
         }
         self.project.tracks = moved;
         // Insert the group track.
-        let mut g = Track::group(format!("Group {}", self.project.tracks.iter().filter(|t| t.kind == TrackKind::Group).count() + 1)).with_color([0x9a, 0x9c, 0xa3]);
+        let mut g =
+            Track::group(format!("Group {}", self.project.tracks.iter().filter(|t| t.kind == TrackKind::Group).count() + 1)).with_color([0x9a, 0x9c, 0xa3]);
         g.group = parent;
         let gi = self.insert_track(pos, g);
         for k in 0..indices.len() {
@@ -221,7 +230,15 @@ impl App {
     }
 
     fn remove_track_at(&mut self, t: usize) {
-        remap_track_refs(&mut self.project, &|i| if i == t { None } else if i > t { Some(i - 1) } else { Some(i) });
+        remap_track_refs(&mut self.project, &|i| {
+            if i == t {
+                None
+            } else if i > t {
+                Some(i - 1)
+            } else {
+                Some(i)
+            }
+        });
         self.project.tracks.remove(t);
         self.automation_view.clear();
         self.selected_track = None;
@@ -346,7 +363,15 @@ impl App {
                 t.slots.remove(s);
             }
         }
-        self.fix_jump_targets(|x| if x == s { None } else if x > s { Some(x - 1) } else { Some(x) });
+        self.fix_jump_targets(|x| {
+            if x == s {
+                None
+            } else if x > s {
+                Some(x - 1)
+            } else {
+                Some(x)
+            }
+        });
         self.selected_clip = None;
         self.rebuild();
     }
@@ -399,7 +424,8 @@ impl App {
 
     /// MIDI tracks that should receive live notes: armed ones, else the selected one.
     pub fn live_targets(&self) -> Vec<usize> {
-        let armed: Vec<usize> = (0..self.project.tracks.len()).filter(|&i| self.project.tracks[i].armed && self.project.tracks[i].kind == TrackKind::Midi).collect();
+        let armed: Vec<usize> =
+            (0..self.project.tracks.len()).filter(|&i| self.project.tracks[i].armed && self.project.tracks[i].kind == TrackKind::Midi).collect();
         if !armed.is_empty() {
             return armed;
         }

@@ -140,7 +140,15 @@ pub struct GrainDelay {
 impl GrainDelay {
     pub fn new(p: GrainDelayParams, sr: f32) -> Self {
         let n = (5.0 * sr) as usize;
-        Self { dl: [DelayLine::new(n), DelayLine::new(n)], phase: 0.0, ratio: 2f32.powf(p.pitch_semitones / 12.0), rng: Noise::with_seed(77), fb: [0.0; 2], p, sr }
+        Self {
+            dl: [DelayLine::new(n), DelayLine::new(n)],
+            phase: 0.0,
+            ratio: 2f32.powf(p.pitch_semitones / 12.0),
+            rng: Noise::with_seed(77),
+            fb: [0.0; 2],
+            p,
+            sr,
+        }
     }
 }
 
@@ -204,7 +212,11 @@ impl Effect for GrainDelay {
 // Vocoder
 // ---------------------------------------------------------------------------
 
-const VOC_PARAMS: &[ParamInfo] = &[ParamInfo::new("Carrier Hz", 40.0, 880.0, "Hz").at("carrier_hz"), ParamInfo::new("Release", 1.0, 500.0, "ms").at("release_ms"), ParamInfo::new("Dry/Wet", 0.0, 1.0, "").at("dry_wet")];
+const VOC_PARAMS: &[ParamInfo] = &[
+    ParamInfo::new("Carrier Hz", 40.0, 880.0, "Hz").at("carrier_hz"),
+    ParamInfo::new("Release", 1.0, 500.0, "ms").at("release_ms"),
+    ParamInfo::new("Dry/Wet", 0.0, 1.0, "").at("dry_wet"),
+];
 
 const MAX_BANDS: usize = 40;
 
@@ -286,9 +298,15 @@ impl Effect for Vocoder {
             };
             let mut y = 0.0;
             for b in 0..n_b {
-                let mb = { let t = self.mod_bp[b][0].process(m); self.mod_bp[b][1].process(t) };
+                let mb = {
+                    let t = self.mod_bp[b][0].process(m);
+                    self.mod_bp[b][1].process(t)
+                };
                 let e = self.env[b].next(mb);
-                let cb = { let t = self.car_bp[b][0].process(carrier); self.car_bp[b][1].process(t) };
+                let cb = {
+                    let t = self.car_bp[b][0].process(carrier);
+                    self.car_bp[b][1].process(t)
+                };
                 y += cb * e;
             }
             let y = (y * makeup * 4.0).clamp(-2.0, 2.0);

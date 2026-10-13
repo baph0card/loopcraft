@@ -327,7 +327,11 @@ impl RandomNote {
     }
 }
 
-const RANDOM_PARAMS: &[ParamInfo] = &[ParamInfo::new("Chance", 0.0, 1.0, "").at("chance"), ParamInfo::new("Choices", 1.0, 24.0, "").at("choices"), ParamInfo::new("Interval", 1.0, 24.0, "st").at("interval")];
+const RANDOM_PARAMS: &[ParamInfo] = &[
+    ParamInfo::new("Chance", 0.0, 1.0, "").at("chance"),
+    ParamInfo::new("Choices", 1.0, 24.0, "").at("choices"),
+    ParamInfo::new("Interval", 1.0, 24.0, "st").at("interval"),
+];
 
 impl MidiEffect for RandomNote {
     fn process(&mut self, _ctx: &ProcessContext, _frames: u32, input: &EventList, out: &mut EventList) {
@@ -389,8 +393,12 @@ impl Velocity {
     }
 }
 
-const VELOCITY_PARAMS: &[ParamInfo] =
-    &[ParamInfo::new("Out Low", 1.0, 127.0, "").at("out_low"), ParamInfo::new("Out High", 1.0, 127.0, "").at("out_high"), ParamInfo::new("Random", 0.0, 64.0, "").at("random"), ParamInfo::new("Curve", 0.25, 4.0, "").at("curve")];
+const VELOCITY_PARAMS: &[ParamInfo] = &[
+    ParamInfo::new("Out Low", 1.0, 127.0, "").at("out_low"),
+    ParamInfo::new("Out High", 1.0, 127.0, "").at("out_high"),
+    ParamInfo::new("Random", 0.0, 64.0, "").at("random"),
+    ParamInfo::new("Curve", 0.25, 4.0, "").at("curve"),
+];
 
 impl MidiEffect for Velocity {
     fn process(&mut self, _ctx: &ProcessContext, _frames: u32, input: &EventList, out: &mut EventList) {
@@ -547,7 +555,17 @@ pub struct Arpeggiator {
 
 impl Arpeggiator {
     pub fn new(p: ArpParams) -> Self {
-        Self { p, held: [(0, 0); 32], n_held: 0, down: 0, latch_stale: false, step: 0, pending: PendingOffs::new(), rng: Noise::with_seed(0xa4b1_c3d5), last_step_beat: -1.0 }
+        Self {
+            p,
+            held: [(0, 0); 32],
+            n_held: 0,
+            down: 0,
+            latch_stale: false,
+            step: 0,
+            pending: PendingOffs::new(),
+            rng: Noise::with_seed(0xa4b1_c3d5),
+            last_step_beat: -1.0,
+        }
     }
 
     fn add(&mut self, note: u8, vel: u8) {
@@ -614,7 +632,11 @@ impl Arpeggiator {
     }
 }
 
-const ARP_PARAMS: &[ParamInfo] = &[ParamInfo::new("Rate", 0.0625, 2.0, "beats").at("rate"), ParamInfo::new("Gate", 0.05, 2.0, "").at("gate"), ParamInfo::new("Octaves", 1.0, 4.0, "").at("octaves")];
+const ARP_PARAMS: &[ParamInfo] = &[
+    ParamInfo::new("Rate", 0.0625, 2.0, "beats").at("rate"),
+    ParamInfo::new("Gate", 0.05, 2.0, "").at("gate"),
+    ParamInfo::new("Octaves", 1.0, 4.0, "").at("octaves"),
+];
 
 impl MidiEffect for Arpeggiator {
     fn process(&mut self, ctx: &ProcessContext, frames: u32, input: &EventList, out: &mut EventList) {

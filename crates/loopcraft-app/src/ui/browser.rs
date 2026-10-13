@@ -168,7 +168,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if ui.small_button("Scan plugin folders").clicked() {
                 let (found, errors) = scan_clap(&default_clap_paths());
                 app.plugin_list = found.into_iter().flat_map(|(path, ps)| ps.into_iter().map(move |p| (path.clone(), p))).collect();
-                app.status = format!("Found {} CLAP plugin(s){}", app.plugin_list.len(), if errors.is_empty() { String::new() } else { format!(", {} failed", errors.len()) });
+                app.status = format!(
+                    "Found {} CLAP plugin(s){}",
+                    app.plugin_list.len(),
+                    if errors.is_empty() { String::new() } else { format!(", {} failed", errors.len()) }
+                );
             }
             if app.plugin_list.is_empty() {
                 ui.label(RichText::new("Searches ~/.clap, /usr/lib/clap and $CLAP_PATH").size(10.0).color(theme::DIM));
@@ -187,6 +191,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         name: info.name.clone(),
                         is_instrument: info.is_instrument,
                         state: None,
+                        params: Vec::new(),
                     });
                     place(app, spec);
                 }

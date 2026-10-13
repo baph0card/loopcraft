@@ -475,8 +475,14 @@ impl Crossover {
     /// Returns (low, high).
     #[inline]
     pub fn split(&mut self, x: f32) -> (f32, f32) {
-        let l = { let t = self.lp[0].process(x); self.lp[1].process(t) };
-        let h = { let t = self.hp[0].process(x); self.hp[1].process(t) };
+        let l = {
+            let t = self.lp[0].process(x);
+            self.lp[1].process(t)
+        };
+        let h = {
+            let t = self.hp[0].process(x);
+            self.hp[1].process(t)
+        };
         (l, h)
     }
     /// Pass through as the allpass sum, for phase-aligning other bands.

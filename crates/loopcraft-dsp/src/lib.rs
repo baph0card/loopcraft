@@ -9,6 +9,7 @@ pub mod effects;
 pub mod fm;
 pub mod midi;
 pub mod multisampler;
+pub mod plugin_params;
 pub mod rack;
 pub mod sampler;
 pub mod specs;

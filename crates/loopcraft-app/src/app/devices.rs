@@ -385,7 +385,10 @@ impl App {
     pub fn save_preset(&mut self, spec: &DeviceSpec, name: &str) {
         let dir = self.preset_dir().join(sanitize(spec.name()));
         let path = dir.join(format!("{}.json", sanitize(name)));
-        let res = std::fs::create_dir_all(&dir).map_err(|e| e.to_string()).and_then(|_| serde_json::to_string_pretty(spec).map_err(|e| e.to_string())).and_then(|s| std::fs::write(&path, s).map_err(|e| e.to_string()));
+        let res = std::fs::create_dir_all(&dir)
+            .map_err(|e| e.to_string())
+            .and_then(|_| serde_json::to_string_pretty(spec).map_err(|e| e.to_string()))
+            .and_then(|s| std::fs::write(&path, s).map_err(|e| e.to_string()));
         self.status = match res {
             Ok(()) => format!("Saved preset {}", path.display()),
             Err(e) => format!("Couldn't save preset: {e}"),

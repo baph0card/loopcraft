@@ -4,8 +4,11 @@ use super::mix;
 use crate::{Effect, ParamInfo, ProcessContext};
 use loopcraft_core::{SaturatorParams, db_to_gain};
 
-pub(crate) const PARAMS: &[ParamInfo] =
-    &[ParamInfo::new("Drive", 0.0, 36.0, "dB").at("drive_db"), ParamInfo::new("Output", -36.0, 0.0, "dB").at("output_db"), ParamInfo::new("Dry/Wet", 0.0, 1.0, "").at("dry_wet")];
+pub(crate) const PARAMS: &[ParamInfo] = &[
+    ParamInfo::new("Drive", 0.0, 36.0, "dB").at("drive_db"),
+    ParamInfo::new("Output", -36.0, 0.0, "dB").at("output_db"),
+    ParamInfo::new("Dry/Wet", 0.0, 1.0, "").at("dry_wet"),
+];
 
 pub struct Saturator {
     p: SaturatorParams,

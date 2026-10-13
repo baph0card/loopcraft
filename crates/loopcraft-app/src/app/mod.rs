@@ -12,9 +12,9 @@ mod files;
 mod midi_in;
 mod record;
 mod settings;
-mod tracks;
 #[cfg(test)]
 mod tests;
+mod tracks;
 
 pub use devices::nested_mut;
 pub use files::{EXPORT_FORMATS, EXPORT_RATES};

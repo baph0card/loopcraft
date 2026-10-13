@@ -96,7 +96,11 @@ fn header(ui: &mut egui::Ui, label: &str, color: Color32, selected: bool, indent
         let fr = ui.interact(r, ui.id().with(("fold", label, rect.min.x as i32)), Sense::click());
         let c = r.center();
         let s = 4.0;
-        let pts = if open { vec![c + vec2(-s, -s * 0.5), c + vec2(s, -s * 0.5), c + vec2(0.0, s * 0.7)] } else { vec![c + vec2(-s * 0.5, -s), c + vec2(-s * 0.5, s), c + vec2(s * 0.7, 0.0)] };
+        let pts = if open {
+            vec![c + vec2(-s, -s * 0.5), c + vec2(s, -s * 0.5), c + vec2(0.0, s * 0.7)]
+        } else {
+            vec![c + vec2(-s * 0.5, -s), c + vec2(-s * 0.5, s), c + vec2(s * 0.7, 0.0)]
+        };
         ui.painter().add(egui::Shape::convex_polygon(pts, Color32::BLACK, Stroke::NONE));
         fr
     });
@@ -230,7 +234,11 @@ fn track_column(app: &mut App, ui: &mut egui::Ui, t: usize, st: &EngineState, bl
                 p.rect_filled(inner, 2.0, if any { if any_playing { theme::dim(color, 0.9) } else { theme::dim(color, 0.45) } } else { theme::SLOT });
                 if any {
                     let c0 = inner.left_center() + vec2(8.0, 0.0);
-                    p.add(egui::Shape::convex_polygon(vec![c0 + vec2(-4.0, -5.0), c0 + vec2(-4.0, 5.0), c0 + vec2(4.0, 0.0)], if any_playing { theme::PLAY } else { Color32::from_black_alpha(160) }, Stroke::NONE));
+                    p.add(egui::Shape::convex_polygon(
+                        vec![c0 + vec2(-4.0, -5.0), c0 + vec2(-4.0, 5.0), c0 + vec2(4.0, 0.0)],
+                        if any_playing { theme::PLAY } else { Color32::from_black_alpha(160) },
+                        Stroke::NONE,
+                    ));
                 }
             } else {
                 let clip = app.project.tracks[t].slots.get(s).and_then(|c| c.as_ref());
@@ -271,7 +279,17 @@ fn track_column(app: &mut App, ui: &mut egui::Ui, t: usize, st: &EngineState, bl
                     }
                     None => {
                         let rec_here = rec_slot == s as i32;
-                        p.rect_filled(inner, 2.0, if resp.hovered() { theme::SLOT_HOVER } else if scene_sel { theme::dim(theme::SLOT_HOVER, 0.9) } else { theme::SLOT });
+                        p.rect_filled(
+                            inner,
+                            2.0,
+                            if resp.hovered() {
+                                theme::SLOT_HOVER
+                            } else if scene_sel {
+                                theme::dim(theme::SLOT_HOVER, 0.9)
+                            } else {
+                                theme::SLOT
+                            },
+                        );
                         if rec_here {
                             p.circle_filled(inner.center(), 5.0, if blink { theme::REC } else { theme::dim(theme::REC, 0.5) });
                         } else if armed {
@@ -595,7 +613,11 @@ fn master_column(app: &mut App, ui: &mut egui::Ui, st: &EngineState, blink: bool
             p.rect_filled(inner, 2.0, fill);
             let c0 = inner.left_center() + vec2(8.0, 0.0);
             let queued = next == s as i32 && blink;
-            p.add(egui::Shape::convex_polygon(vec![c0 + vec2(-4.0, -5.0), c0 + vec2(-4.0, 5.0), c0 + vec2(4.0, 0.0)], if queued { theme::PLAY } else { theme::TEXT }, Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(
+                vec![c0 + vec2(-4.0, -5.0), c0 + vec2(-4.0, 5.0), c0 + vec2(4.0, 0.0)],
+                if queued { theme::PLAY } else { theme::TEXT },
+                Stroke::NONE,
+            ));
             p.text(inner.left_center() + vec2(16.0, 0.0), Align2::LEFT_CENTER, label, FontId::proportional(11.0), theme::TEXT);
             if app.selected_scene == s {
                 p.rect_stroke(inner, 2.0, Stroke::new(1.0, theme::DIM), StrokeKind::Inside);
@@ -796,7 +818,8 @@ fn mixer_strip(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, st: &EngineState)
                 }
                 if let TrackRef::Track(t) = ch {
                     mappable(app, ui, r.rect, MappingTarget::Mute(t));
-                    let r = small_toggle(ui, mix.solo, if app.cue_mode { "C" } else { "S" }, theme::SOLO).on_hover_text(if app.cue_mode { "Cue" } else { "Solo" });
+                    let r =
+                        small_toggle(ui, mix.solo, if app.cue_mode { "C" } else { "S" }, theme::SOLO).on_hover_text(if app.cue_mode { "Cue" } else { "Solo" });
                     if r.clicked() {
                         let solo = !mix.solo;
                         if !ui.input(|i| i.modifiers.command) && !app.cue_mode && solo {

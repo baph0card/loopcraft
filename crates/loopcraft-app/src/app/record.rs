@@ -229,14 +229,23 @@ impl App {
     fn recording_path(&self, track: usize) -> (PathBuf, String) {
         let base = self.default_dir();
         let dir = base.join("Samples").join("Recorded");
-        let name: String = self.project.tracks.get(track).map(|t| t.name.clone()).unwrap_or_default().chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' }).collect();
+        let name: String = self
+            .project
+            .tracks
+            .get(track)
+            .map(|t| t.name.clone())
+            .unwrap_or_default()
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' })
+            .collect();
         let mut n = 1;
         loop {
             let file = format!("{name} {n:03}.wav");
             let p = dir.join(&file);
             if !p.exists() {
                 // Relative paths only make sense once the project has a folder.
-                let stored = if self.path.is_some() { Path::new("Samples").join("Recorded").join(&file).display().to_string() } else { p.display().to_string() };
+                let stored =
+                    if self.path.is_some() { Path::new("Samples").join("Recorded").join(&file).display().to_string() } else { p.display().to_string() };
                 return (p, stored);
             }
             n += 1;
@@ -283,6 +292,10 @@ impl App {
             _ => {}
         }
         let secs = l.len() as f32 / self.sample_rate;
-        self.status = if rec.dropped > 0 { format!("Recorded {secs:.1}s ({} frames dropped)", rec.dropped) } else { format!("Recorded {secs:.1}s to {}", file.display()) };
+        self.status = if rec.dropped > 0 {
+            format!("Recorded {secs:.1}s ({} frames dropped)", rec.dropped)
+        } else {
+            format!("Recorded {secs:.1}s to {}", file.display())
+        };
     }
 }

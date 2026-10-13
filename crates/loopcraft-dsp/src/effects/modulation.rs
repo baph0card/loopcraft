@@ -279,7 +279,11 @@ impl Effect for Phaser {
 // Auto Pan / tremolo
 // ---------------------------------------------------------------------------
 
-const AUTOPAN_PARAMS: &[ParamInfo] = &[ParamInfo::new("Rate", 0.0625, 16.0, "beats").at("rate_beats"), ParamInfo::new("Amount", 0.0, 1.0, "").at("amount"), ParamInfo::new("Phase", 0.0, 360.0, "deg").at("phase_deg")];
+const AUTOPAN_PARAMS: &[ParamInfo] = &[
+    ParamInfo::new("Rate", 0.0625, 16.0, "beats").at("rate_beats"),
+    ParamInfo::new("Amount", 0.0, 1.0, "").at("amount"),
+    ParamInfo::new("Phase", 0.0, 360.0, "deg").at("phase_deg"),
+];
 
 pub struct AutoPan {
     p: AutoPanParams,
@@ -326,7 +330,11 @@ impl Effect for AutoPan {
 // Redux
 // ---------------------------------------------------------------------------
 
-const REDUX_PARAMS: &[ParamInfo] = &[ParamInfo::new("Bits", 1.0, 24.0, "").at("bits"), ParamInfo::new("Downsample", 1.0, 64.0, "x").at("downsample"), ParamInfo::new("Dry/Wet", 0.0, 1.0, "").at("dry_wet")];
+const REDUX_PARAMS: &[ParamInfo] = &[
+    ParamInfo::new("Bits", 1.0, 24.0, "").at("bits"),
+    ParamInfo::new("Downsample", 1.0, 64.0, "x").at("downsample"),
+    ParamInfo::new("Dry/Wet", 0.0, 1.0, "").at("dry_wet"),
+];
 
 pub struct Redux {
     p: ReduxParams,

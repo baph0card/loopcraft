@@ -47,22 +47,32 @@ impl Core {
                 _ => None,
             }
         };
-        let key_sources: Vec<usize> = p.tracks.iter().chain(p.returns.iter()).chain(std::iter::once(&p.master)).flat_map(|t| t.effects.iter()).filter_map(sidechain_of).collect();
+        let key_sources: Vec<usize> =
+            p.tracks.iter().chain(p.returns.iter()).chain(std::iter::once(&p.master)).flat_map(|t| t.effects.iter()).filter_map(sidechain_of).collect();
 
         let mut tracks: Vec<Track> = p
             .tracks
             .iter()
             .enumerate()
             .map(|(i, t)| {
-                let instrument = if t.kind == TrackKind::Midi { t.instrument.as_ref().and_then(|s| build(s, sr, loader, plugins)).and_then(Device::into_instrument) } else { None };
+                let instrument = if t.kind == TrackKind::Midi {
+                    t.instrument.as_ref().and_then(|s| build(s, sr, loader, plugins)).and_then(Device::into_instrument)
+                } else {
+                    None
+                };
                 let midi_fx = t
                     .midi_effects
                     .iter()
                     .enumerate()
-                    .filter_map(|(j, s)| build(s, sr, loader, plugins).and_then(Device::into_midi_effect).map(|fx| MidiFxSlot { fx, bypass: t.midi_bypassed.contains(&j) }))
+                    .filter_map(|(j, s)| {
+                        build(s, sr, loader, plugins).and_then(Device::into_midi_effect).map(|fx| MidiFxSlot { fx, bypass: t.midi_bypassed.contains(&j) })
+                    })
                     .collect();
-                let mut arrangement: Vec<ArrClip> =
-                    t.arrangement.iter().map(|a| ArrClip { start: a.start, offset: a.offset, end: a.end(), clip: RtClip::from_clip_with(&a.clip, loader, &p.grooves) }).collect();
+                let mut arrangement: Vec<ArrClip> = t
+                    .arrangement
+                    .iter()
+                    .map(|a| ArrClip { start: a.start, offset: a.offset, end: a.end(), clip: RtClip::from_clip_with(&a.clip, loader, &p.grooves) })
+                    .collect();
                 arrangement.sort_by(|a, b| a.start.total_cmp(&b.start));
                 Track {
                     kind: t.kind,

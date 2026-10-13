@@ -36,7 +36,8 @@ impl Core {
         let chans = self.input_channels;
         for i in 0..self.tracks.len() {
             let src = self.tracks[i].input;
-            let needs = self.tracks[i].kind == TrackKind::Audio && (self.tracks[i].armed || self.tracks[i].monitor == Monitor::In || self.recordings.iter().any(|r| r.track == i));
+            let needs = self.tracks[i].kind == TrackKind::Audio
+                && (self.tracks[i].armed || self.tracks[i].monitor == Monitor::In || self.recordings.iter().any(|r| r.track == i));
             if !needs {
                 self.tracks[i].has_input = false;
                 continue;
@@ -371,8 +372,13 @@ impl Core {
         for i in 0..n {
             if Some(i) == next_click {
                 let accent = (k / bar).fract().abs() < 1e-6;
-                self.click =
-                    Click { t: 0, len: (0.03 * self.sr) as usize, freq: if accent { 1_600.0 } else { 1_000.0 }, phase: 0.0, amp: if accent { 0.5 } else { 0.3 } };
+                self.click = Click {
+                    t: 0,
+                    len: (0.03 * self.sr) as usize,
+                    freq: if accent { 1_600.0 } else { 1_000.0 },
+                    phase: 0.0,
+                    amp: if accent { 0.5 } else { 0.3 },
+                };
                 k += 1.0;
                 next_click = if (k - b0) / bpf < n as f64 { Some(((k - b0) / bpf).round() as usize) } else { None };
             }

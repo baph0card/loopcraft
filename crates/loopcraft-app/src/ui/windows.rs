@@ -35,12 +35,15 @@ fn settings(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ui.checkbox(&mut a.input_enabled, "");
                 ui.add_enabled_ui(a.input_enabled, |ui| {
-                    egui::ComboBox::from_id_salt("indev").width(236.0).selected_text(a.input.clone().unwrap_or_else(|| "System default".into())).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut a.input, None, "System default");
-                        for d in &devices.1 {
-                            ui.selectable_value(&mut a.input, Some(d.clone()), d);
-                        }
-                    });
+                    egui::ComboBox::from_id_salt("indev").width(236.0).selected_text(a.input.clone().unwrap_or_else(|| "System default".into())).show_ui(
+                        ui,
+                        |ui| {
+                            ui.selectable_value(&mut a.input, None, "System default");
+                            for d in &devices.1 {
+                                ui.selectable_value(&mut a.input, Some(d.clone()), d);
+                            }
+                        },
+                    );
                 });
             });
             ui.end_row();
@@ -143,7 +146,11 @@ fn grooves(app: &mut App, ctx: &egui::Context) {
     }
     let mut open = true;
     egui::Window::new("Groove Pool").open(&mut open).resizable(true).default_width(380.0).show(ctx, |ui| {
-        ui.label(RichText::new("Clips pick a groove in their Clip properties. Timing is in fractions of a 16th; velocity is a relative change.").size(10.0).color(theme::DIM));
+        ui.label(
+            RichText::new("Clips pick a groove in their Clip properties. Timing is in fractions of a 16th; velocity is a relative change.")
+                .size(10.0)
+                .color(theme::DIM),
+        );
         let mut remove = None;
         let mut changed = false;
         for (i, g) in app.project.grooves.iter_mut().enumerate() {

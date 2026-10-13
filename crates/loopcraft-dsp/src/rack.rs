@@ -123,7 +123,14 @@ impl AudioRack {
     pub fn new(p: &RackParams, mut build: impl FnMut(&DeviceSpec) -> Option<Box<dyn Effect>>) -> Self {
         let mut chains: Vec<Chain> = p.chains.iter().map(|c| Chain::new(c, None, c.devices.iter().filter_map(&mut build).collect())).collect();
         let latency = compensate(&mut chains);
-        let mut rack = Self { name: if p.name.is_empty() { "Audio Effect Rack".into() } else { p.name.clone() }, chains, macros: p.macros.clone(), in_l: vec![0.0; MAX_BLOCK], in_r: vec![0.0; MAX_BLOCK], latency };
+        let mut rack = Self {
+            name: if p.name.is_empty() { "Audio Effect Rack".into() } else { p.name.clone() },
+            chains,
+            macros: p.macros.clone(),
+            in_l: vec![0.0; MAX_BLOCK],
+            in_r: vec![0.0; MAX_BLOCK],
+            latency,
+        };
         for i in 0..rack.macros.len() {
             let v = rack.macros[i].value;
             apply_macro(&mut rack.chains, &mut rack.macros, false, i, v);
@@ -304,7 +311,10 @@ mod tests {
     fn rack_compensates_chain_latency() {
         let mut p = RackParams::default();
         p.chains = vec![
-            RackChain { devices: vec![DeviceSpec::Limiter(LimiterParams { gain_db: 0.0, ceiling_db: 0.0, lookahead_ms: 1.0, ..Default::default() })], ..Default::default() },
+            RackChain {
+                devices: vec![DeviceSpec::Limiter(LimiterParams { gain_db: 0.0, ceiling_db: 0.0, lookahead_ms: 1.0, ..Default::default() })],
+                ..Default::default()
+            },
             RackChain { devices: vec![utility(0.0)], ..Default::default() },
         ];
         let Some(Device::Effect(mut rack)) = build_device(&DeviceSpec::AudioRack(p), 48_000.0, &NoSamples) else { panic!() };

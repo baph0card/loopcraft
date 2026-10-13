@@ -1,16 +1,20 @@
-//! Minimal CLAP host: load a library, list its plugins, instantiate one and
-//! process stereo audio and note events.
+//! Minimal CLAP host: load a library, list its plugins, instantiate one,
+//! process stereo audio and note events, set parameters (params extension)
+//! and report latency (latency extension).
 
 use clap_sys::audio_buffer::clap_audio_buffer;
 use clap_sys::entry::clap_plugin_entry;
 use clap_sys::events::*;
+use clap_sys::ext::latency::{CLAP_EXT_LATENCY, clap_plugin_latency};
+use clap_sys::ext::params::{CLAP_EXT_PARAMS, CLAP_PARAM_IS_HIDDEN, CLAP_PARAM_IS_READONLY, clap_param_info, clap_plugin_params};
 use clap_sys::factory::plugin_factory::{CLAP_PLUGIN_FACTORY_ID, clap_plugin_factory};
 use clap_sys::host::clap_host;
 use clap_sys::plugin::clap_plugin;
 use clap_sys::plugin_features::CLAP_PLUGIN_FEATURE_INSTRUMENT;
 use clap_sys::process::{CLAP_PROCESS_ERROR, clap_process};
 use clap_sys::version::{CLAP_VERSION, clap_version_is_compatible};
-use loopcraft_dsp::{Effect, Instrument, ProcessContext};
+use loopcraft_dsp::plugin_params::{PluginParam, register};
+use loopcraft_dsp::{Effect, Instrument, ParamInfo, ProcessContext};
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::path::Path;
 use std::ptr;
@@ -121,18 +125,26 @@ const HOST_VERSION: &CStr = c"0.1.0";
 
 const MAX_EVENTS: usize = 512;
 
+/// Note and parameter events share one list; both start with a header.
+#[repr(C)]
+#[derive(Clone, Copy)]
+union Ev {
+    note: clap_event_note,
+    param: clap_event_param_value,
+}
+
 struct InEvents {
-    notes: Vec<clap_event_note>,
+    list: Vec<Ev>,
 }
 
 unsafe extern "C" fn in_size(list: *const clap_input_events) -> u32 {
-    unsafe { (*((*list).ctx as *const InEvents)).notes.len() as u32 }
+    unsafe { (*((*list).ctx as *const InEvents)).list.len() as u32 }
 }
 
 unsafe extern "C" fn in_get(list: *const clap_input_events, i: u32) -> *const clap_event_header {
     unsafe {
         let ev = &*((*list).ctx as *const InEvents);
-        ev.notes.get(i as usize).map_or(ptr::null(), |n| &n.header as *const _)
+        ev.list.get(i as usize).map_or(ptr::null(), |e| e as *const Ev as *const clap_event_header)
     }
 }
 
@@ -156,6 +168,9 @@ pub struct ClapInstance {
     started: bool,
     steady: i64,
     name: String,
+    params: &'static [ParamInfo],
+    param_ids: Vec<u32>,
+    latency: usize,
     _lib: Arc<ClapLibrary>,
 }
 
@@ -196,7 +211,9 @@ impl ClapInstance {
                 }
                 return Err(format!("{id} failed to activate"));
             }
-            let mut events = Box::new(InEvents { notes: Vec::with_capacity(MAX_EVENTS) });
+            let (params, param_ids) = query_params(plugin, id);
+            let latency = query_latency(plugin);
+            let mut events = Box::new(InEvents { list: Vec::with_capacity(MAX_EVENTS) });
             let ctx = &mut *events as *mut InEvents as *mut c_void;
             let n = max_block as usize;
             Ok(Self {
@@ -212,13 +229,38 @@ impl ClapInstance {
                 started: false,
                 steady: 0,
                 name: lib.plugins.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| id.to_string()),
+                params,
+                param_ids,
+                latency,
                 _lib: lib,
             })
         }
     }
 
+    /// The plugin's parameters, in the order LoopCraft indexes them.
+    pub fn param_table(&self) -> &'static [ParamInfo] {
+        self.params
+    }
+
+    fn push_param(&mut self, index: usize, value: f32) {
+        let Some(&id) = self.param_ids.get(index) else { return };
+        if self.events.list.len() >= MAX_EVENTS {
+            return;
+        }
+        let header = clap_event_header {
+            size: std::mem::size_of::<clap_event_param_value>() as u32,
+            time: 0,
+            space_id: CLAP_CORE_EVENT_SPACE_ID,
+            type_: CLAP_EVENT_PARAM_VALUE,
+            flags: 0,
+        };
+        let param =
+            clap_event_param_value { header, param_id: id, cookie: ptr::null_mut(), note_id: -1, port_index: -1, channel: -1, key: -1, value: value as f64 };
+        self.events.list.push(Ev { param });
+    }
+
     fn push_note(&mut self, on: bool, key: u8, velocity: u8) {
-        if self.events.notes.len() >= MAX_EVENTS {
+        if self.events.list.len() >= MAX_EVENTS {
             return;
         }
         let header = clap_event_header {
@@ -228,7 +270,8 @@ impl ClapInstance {
             type_: if on { CLAP_EVENT_NOTE_ON } else { CLAP_EVENT_NOTE_OFF },
             flags: 0,
         };
-        self.events.notes.push(clap_event_note { header, note_id: -1, port_index: 0, channel: 0, key: key as i16, velocity: velocity as f64 / 127.0 });
+        let note = clap_event_note { header, note_id: -1, port_index: 0, channel: 0, key: key as i16, velocity: velocity as f64 / 127.0 };
+        self.events.list.push(Ev { note });
     }
 
     /// Run the plugin over `n` frames using the internal in/out buffers.
@@ -255,9 +298,45 @@ impl ClapInstance {
             };
             let status = (*self.plugin).process.map(|f| f(self.plugin, &proc)).unwrap_or(CLAP_PROCESS_ERROR);
             self.steady += n as i64;
-            self.events.notes.clear();
+            self.events.list.clear();
             status != CLAP_PROCESS_ERROR
         }
+    }
+}
+
+/// Read the plugin's parameter list (params extension), hiding read-only
+/// and hidden parameters, and register it for the UI.
+unsafe fn query_params(plugin: *const clap_plugin, id: &str) -> (&'static [ParamInfo], Vec<u32>) {
+    unsafe {
+        let ext = (*plugin).get_extension.map(|f| f(plugin, CLAP_EXT_PARAMS.as_ptr())).unwrap_or(ptr::null());
+        if ext.is_null() {
+            return (&[], Vec::new());
+        }
+        let ext = &*(ext as *const clap_plugin_params);
+        let n = ext.count.map(|f| f(plugin)).unwrap_or(0);
+        let mut list = Vec::new();
+        let mut ids = Vec::new();
+        for i in 0..n {
+            let mut info: clap_param_info = std::mem::zeroed();
+            if !ext.get_info.map(|f| f(plugin, i, &mut info)).unwrap_or(false) || info.flags & (CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY) != 0 {
+                continue;
+            }
+            let name = CStr::from_ptr(info.name.as_ptr()).to_string_lossy().into_owned();
+            list.push(PluginParam { name, min: info.min_value as f32, max: info.max_value as f32, default: info.default_value as f32 });
+            ids.push(info.id);
+        }
+        (register(id, list), ids)
+    }
+}
+
+unsafe fn query_latency(plugin: *const clap_plugin) -> usize {
+    unsafe {
+        let ext = (*plugin).get_extension.map(|f| f(plugin, CLAP_EXT_LATENCY.as_ptr())).unwrap_or(ptr::null());
+        if ext.is_null() {
+            return 0;
+        }
+        let ext = &*(ext as *const clap_plugin_latency);
+        ext.get.map(|f| f(plugin)).unwrap_or(0) as usize
     }
 }
 
@@ -295,6 +374,18 @@ impl Effect for ClapInstance {
         }
     }
 
+    fn params(&self) -> &'static [ParamInfo] {
+        self.params
+    }
+
+    fn set_param(&mut self, index: usize, value: f32) {
+        self.push_param(index, value);
+    }
+
+    fn latency(&self) -> usize {
+        self.latency
+    }
+
     fn name(&self) -> &str {
         &self.name
     }
@@ -329,6 +420,14 @@ impl Instrument for ClapInstance {
             }
             done += n;
         }
+    }
+
+    fn params(&self) -> &'static [ParamInfo] {
+        self.params
+    }
+
+    fn set_param(&mut self, index: usize, value: f32) {
+        self.push_param(index, value);
     }
 
     fn name(&self) -> &str {
