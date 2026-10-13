@@ -92,7 +92,7 @@ fn compensate(chains: &mut [Chain]) -> usize {
         let d = max - c.latency;
         if d > 0 {
             // DelayLine::read(1) is the most recent sample, so add one.
-            c.comp = Some((DelayLine::new(d + 2), DelayLine::new(d + 2), d as f32));
+            c.comp = Some((DelayLine::new(d + 2), DelayLine::new(d + 2), (d + 1) as f32));
         }
     }
     max
@@ -270,5 +270,75 @@ impl Instrument for InstrumentRack {
     }
     fn name(&self) -> &str {
         &self.name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Device, NoSamples, build_device, peak};
+    use loopcraft_core::*;
+
+    fn utility(db: f32) -> DeviceSpec {
+        DeviceSpec::Utility(UtilityParams { gain_db: db, ..Default::default() })
+    }
+
+    #[test]
+    fn audio_rack_sums_chains_and_macros_drive_params() {
+        let mut p = RackParams::default();
+        p.chains = vec![RackChain { devices: vec![utility(0.0)], ..Default::default() }, RackChain { devices: vec![utility(-70.0)], ..Default::default() }];
+        // Macro 1 sweeps chain 1's utility gain from -70 dB to 0 dB.
+        p.macros[0].mappings.push(MacroMapping { chain: 1, device: 0, param: 0, min: -35.0, max: 0.0 });
+        let Some(Device::Effect(mut rack)) = build_device(&DeviceSpec::AudioRack(p), 48_000.0, &NoSamples) else { panic!() };
+        let ctx = crate::ProcessContext::new(48_000.0, 120.0);
+        let (mut l, mut r) = (vec![0.5; 64], vec![0.5; 64]);
+        rack.process(&ctx, &mut l, &mut r);
+        // Utility gain range is -35..35; at macro 0 chain 2 sits at -35 dB.
+        assert!((l[10] - 0.5 * (1.0 + crate::util::pan_gains(0.0).0 * std::f32::consts::SQRT_2 * 0.0 + db_to_gain(-35.0))).abs() < 0.02, "{}", l[10]);
+        rack.set_param(0, 1.0);
+        let (mut l, mut r) = (vec![0.5; 64], vec![0.5; 64]);
+        rack.process(&ctx, &mut l, &mut r);
+        assert!((l[10] - 1.0).abs() < 0.02, "both chains at unity should double: {}", l[10]);
+    }
+
+    #[test]
+    fn rack_compensates_chain_latency() {
+        let mut p = RackParams::default();
+        p.chains = vec![
+            RackChain { devices: vec![DeviceSpec::Limiter(LimiterParams { gain_db: 0.0, ceiling_db: 0.0, lookahead_ms: 1.0, ..Default::default() })], ..Default::default() },
+            RackChain { devices: vec![utility(0.0)], ..Default::default() },
+        ];
+        let Some(Device::Effect(mut rack)) = build_device(&DeviceSpec::AudioRack(p), 48_000.0, &NoSamples) else { panic!() };
+        let lat = rack.latency();
+        assert_eq!(lat, 48);
+        let ctx = crate::ProcessContext::new(48_000.0, 120.0);
+        let mut l = vec![0.0; 256];
+        l[0] = 0.25;
+        let mut r = l.clone();
+        rack.process(&ctx, &mut l, &mut r);
+        // Both chains' copies of the impulse must land on the same sample.
+        let hits: Vec<usize> = (0..256).filter(|&i| l[i].abs() > 1e-3).collect();
+        assert_eq!(hits, vec![lat], "{hits:?}");
+        assert!((peak(&l) - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn instrument_rack_splits_keys() {
+        let mut p = RackParams::default();
+        let synth = DeviceSpec::PolySynth(SynthParams { gain_db: 0.0, ..Default::default() });
+        p.chains = vec![
+            RackChain { devices: vec![synth.clone()], key_range: (0, 59), ..Default::default() },
+            RackChain { devices: vec![synth], key_range: (60, 127), mute: true, ..Default::default() },
+        ];
+        let Some(Device::Instrument(mut rack)) = build_device(&DeviceSpec::InstrumentRack(p), 48_000.0, &NoSamples) else { panic!() };
+        let ctx = crate::ProcessContext::new(48_000.0, 120.0);
+        let render = |rack: &mut Box<dyn crate::Instrument>| {
+            let (mut l, mut r) = (vec![0.0; 4_800], vec![0.0; 4_800]);
+            rack.render(&ctx, &mut l, &mut r);
+            peak(&l)
+        };
+        rack.note_on(72, 100); // goes to the muted high chain
+        assert!(render(&mut rack) < 1e-6);
+        rack.note_on(48, 100);
+        assert!(render(&mut rack) > 0.01);
     }
 }
