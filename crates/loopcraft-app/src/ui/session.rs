@@ -310,7 +310,7 @@ fn track_column(app: &mut App, ui: &mut egui::Ui, t: usize, st: &EngineState, bl
                 app.selected_scene = s;
                 app.device_target = TrackRef::Track(t);
                 app.selected_clip = Some(ClipRef::Session { track: t, slot: s });
-                app.piano_selected = None;
+                app.piano_sel.clear();
                 if filled {
                     app.detail_tab = DetailTab::Clip;
                 }

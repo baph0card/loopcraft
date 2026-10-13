@@ -10,6 +10,7 @@ mod clips;
 mod devices;
 mod files;
 mod midi_in;
+mod notes;
 mod record;
 mod settings;
 #[cfg(test)]
@@ -19,6 +20,7 @@ mod tracks;
 pub use devices::nested_mut;
 pub use files::{EXPORT_FORMATS, EXPORT_RATES};
 pub use midi_in::{MidiIn, is_button};
+pub use notes::{PianoDrag, PianoDragMode};
 pub use record::PendingAudio;
 pub use settings::Settings;
 
@@ -151,12 +153,22 @@ pub struct App {
     pub automation_view: BTreeMap<usize, AutomationTarget>,
     pub show_tempo_lane: bool,
     pub piano_grid: Beats,
-    pub piano_selected: Option<usize>,
+    /// Selected notes (indices into the edited clip's notes).
+    pub piano_sel: std::collections::BTreeSet<usize>,
+    pub piano_sel_owner: Option<ClipRef>,
+    pub note_clipboard: Vec<Note>,
+    /// Ctrl+V pastes notes (true) or a clip (false): whichever was copied last.
+    pub notes_copied_last: bool,
+    /// Last clicked position in the piano roll (beats), where pastes land.
+    pub piano_cursor: f64,
+    /// Show only pitches that have notes.
+    pub piano_fold: bool,
+    /// Highlight a scale in the piano roll: (root 0..11, scale).
+    pub piano_scale: Option<(u8, ScaleKind)>,
     pub export_rx: Option<Receiver<String>>,
     /// Channel whose device chain the Devices tab shows.
     pub device_target: TrackRef,
-    /// (note index, resizing?, note before drag, beat and pitch at press)
-    pub piano_drag: Option<(usize, bool, Note, f64, i32)>,
+    pub piano_drag: Option<PianoDrag>,
     pub arr_drag: Option<ArrDrag>,
     pub renaming: Option<(Rename, String)>,
     /// Lowest visible pitch in the piano roll, per clip, so the view doesn't
@@ -258,7 +270,13 @@ impl App {
             automation_view: BTreeMap::new(),
             show_tempo_lane: false,
             piano_grid: 0.25,
-            piano_selected: None,
+            piano_sel: Default::default(),
+            piano_sel_owner: None,
+            note_clipboard: Vec::new(),
+            notes_copied_last: false,
+            piano_cursor: 0.0,
+            piano_fold: false,
+            piano_scale: None,
             export_rx: None,
             device_target: TrackRef::Track(0),
             piano_drag: None,

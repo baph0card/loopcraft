@@ -97,14 +97,24 @@ fn handle_keys(app: &mut App, ctx: &egui::Context) {
     for ev in events {
         match &ev {
             egui::Event::Copy => {
-                if let Some(c) = app.selected_clip.and_then(|c| app.clip(c)).cloned() {
+                if let Some(c) = note_target(app)
+                    && app.copy_notes(c)
+                {
+                    app.notes_copied_last = true;
+                } else if let Some(c) = app.selected_clip.and_then(|c| app.clip(c)).cloned() {
+                    app.notes_copied_last = false;
                     app.clipboard = Some(c);
                     app.status = "Copied clip".into();
                 }
                 continue;
             }
             egui::Event::Paste(_) => {
-                if let (Some(c), Some(ClipRef::Session { track, slot })) = (app.clipboard.clone(), app.selected_clip) {
+                if app.notes_copied_last
+                    && let Some(c) = note_target_any(app)
+                {
+                    let at = app.piano_cursor;
+                    app.paste_notes(c, at);
+                } else if let (Some(c), Some(ClipRef::Session { track, slot })) = (app.clipboard.clone(), app.selected_clip) {
                     app.paste_clip(track, slot, c);
                 }
                 continue;
@@ -124,6 +134,15 @@ fn handle_keys(app: &mut App, ctx: &egui::Context) {
                 Key::Z if modifiers.shift => app.redo(),
                 Key::Z => app.undo(),
                 Key::Y => app.redo(),
+                Key::A if note_target_any(app).is_some() => {
+                    let c = note_target_any(app).expect("checked");
+                    app.select_all_notes(c);
+                }
+                Key::D if note_target(app).is_some() => {
+                    let c = note_target(app).expect("checked");
+                    let g = app.piano_grid;
+                    app.duplicate_selected_notes(c, g);
+                }
                 Key::D => match app.selected_clip {
                     Some(ClipRef::Session { track, slot }) => app.duplicate_clip_down(track, slot),
                     Some(ClipRef::Arrangement { track, index }) => app.duplicate_arrangement_clip(track, index),
@@ -200,6 +219,17 @@ fn handle_keys(app: &mut App, ctx: &egui::Context) {
             Key::X if kb => app.octave = (app.octave + 1).min(4),
             Key::C if kb => app.key_velocity = app.key_velocity.saturating_sub(20).max(1),
             Key::V if kb => app.key_velocity = (app.key_velocity + 20).min(127),
+            Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight if note_target(app).is_some() => {
+                let c = note_target(app).expect("checked");
+                let g = app.piano_grid;
+                let (db, dp) = match key {
+                    Key::ArrowUp => (0.0, if modifiers.shift { 12 } else { 1 }),
+                    Key::ArrowDown => (0.0, if modifiers.shift { -12 } else { -1 }),
+                    Key::ArrowLeft => (-g, 0),
+                    _ => (g, 0),
+                };
+                app.nudge_notes(c, db, dp);
+            }
             Key::ArrowUp if app.view == View::Session => app.selected_scene = app.selected_scene.saturating_sub(1),
             Key::ArrowDown if app.view == View::Session => app.selected_scene = (app.selected_scene + 1).min(app.project.scenes.len().saturating_sub(1)),
             Key::Enter if app.view == View::Session => {
@@ -208,15 +238,8 @@ fn handle_keys(app: &mut App, ctx: &egui::Context) {
                 app.selected_scene = (s + 1).min(app.project.scenes.len().saturating_sub(1));
             }
             Key::Delete | Key::Backspace => {
-                if let (Some(n), Some(c)) = (app.piano_selected, app.selected_clip) {
-                    app.checkpoint();
-                    if let Some(loopcraft_core::ClipContent::Midi { notes }) = app.clip_mut(c).map(|c| &mut c.content)
-                        && n < notes.len()
-                    {
-                        notes.remove(n);
-                    }
-                    app.piano_selected = None;
-                    app.commit_clip(c);
+                if let Some(c) = note_target(app) {
+                    app.delete_selected_notes(c);
                 } else if let Some(c) = app.selected_clip {
                     app.delete_clip(c);
                 }
@@ -224,6 +247,18 @@ fn handle_keys(app: &mut App, ctx: &egui::Context) {
             _ => {}
         }
     }
+}
+
+/// The MIDI clip shown in the clip editor, if it has selected notes.
+fn note_target(app: &App) -> Option<ClipRef> {
+    let c = note_target_any(app)?;
+    (!app.selected_notes(c).is_empty()).then_some(c)
+}
+
+/// The MIDI clip shown in the clip editor.
+fn note_target_any(app: &App) -> Option<ClipRef> {
+    let c = app.selected_clip?;
+    (app.detail_tab == crate::app::DetailTab::Clip && matches!(app.clip(c).map(|c| &c.content), Some(loopcraft_core::ClipContent::Midi { .. }))).then_some(c)
 }
 
 pub fn toggle_map(app: &mut App, m: MapMode) {

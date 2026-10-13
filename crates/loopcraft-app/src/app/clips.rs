@@ -470,35 +470,6 @@ impl App {
     // Note editing helpers
     // ------------------------------------------------------------------
 
-    /// Quantize note starts (and optionally ends) to `grid`, by `amount` 0..1.
-    pub fn quantize_notes(&mut self, r: ClipRef, grid: Beats, amount: f64, ends: bool) {
-        self.checkpoint();
-        if let Some(ClipContent::Midi { notes }) = self.clip_mut(r).map(|c| &mut c.content) {
-            for n in notes.iter_mut() {
-                let q = (n.start / grid).round() * grid;
-                let end = n.start + n.length;
-                n.start += (q - n.start) * amount;
-                if ends {
-                    let qe = ((end / grid).round() * grid).max(n.start + grid);
-                    n.length = (end + (qe - end) * amount - n.start).max(1.0 / 64.0);
-                } else {
-                    n.length = (end - n.start).max(1.0 / 64.0);
-                }
-            }
-        }
-        self.commit_clip(r);
-    }
-
-    pub fn transpose_notes(&mut self, r: ClipRef, semis: i32) {
-        self.checkpoint();
-        if let Some(ClipContent::Midi { notes }) = self.clip_mut(r).map(|c| &mut c.content) {
-            for n in notes.iter_mut() {
-                n.pitch = (n.pitch as i32 + semis).clamp(0, 127) as u8;
-            }
-        }
-        self.commit_clip(r);
-    }
-
     /// Double a MIDI clip's loop, copying its notes ("Duplicate Loop").
     pub fn duplicate_loop(&mut self, r: ClipRef) {
         self.checkpoint();

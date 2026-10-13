@@ -2,7 +2,7 @@
 //! the device chain.
 
 use super::{session::follow_editor, theme};
-use crate::app::{App, ClipRef, DetailTab};
+use crate::app::{App, ClipRef, DetailTab, PianoDrag, PianoDragMode};
 use eframe::egui::{self, Align2, Color32, FontId, Rect, RichText, Sense, Stroke, StrokeKind, pos2, vec2};
 use loopcraft_core::*;
 use loopcraft_engine::TrackRef;
@@ -61,6 +61,11 @@ fn clip_view(app: &mut App, ui: &mut egui::Ui) {
             });
         });
         ui.separator();
+        // A note selection belongs to one clip.
+        if app.piano_sel_owner != Some(cref) {
+            app.piano_sel.clear();
+            app.piano_sel_owner = Some(cref);
+        }
         let is_midi = matches!(app.clip(cref).map(|c| &c.content), Some(ClipContent::Midi { .. }));
         if is_midi {
             piano_roll(app, ui, cref);
@@ -220,9 +225,12 @@ fn clip_properties(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
     });
 }
 
+const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
 fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
     let Some(clip) = app.clip(cref).cloned() else { return };
     let ClipContent::Midi { notes } = &clip.content else { return };
+    let sel: std::collections::BTreeSet<usize> = app.selected_notes(cref).into_iter().collect();
 
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
@@ -232,43 +240,61 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             }
             ui.separator();
             let grid = app.piano_grid;
-            if ui.small_button("Quantize").on_hover_text("Snap note starts to the grid").clicked() {
+            let what = if sel.is_empty() { "all notes" } else { "the selection" };
+            if ui.small_button("Quantize").on_hover_text(format!("Snap {what} to the grid")).clicked() {
                 app.quantize_notes(cref, grid, 1.0, false);
             }
-            if ui.small_button("−12").clicked() {
-                app.transpose_notes(cref, -12);
-            }
-            if ui.small_button("−1").clicked() {
-                app.transpose_notes(cref, -1);
-            }
-            if ui.small_button("+1").clicked() {
-                app.transpose_notes(cref, 1);
-            }
-            if ui.small_button("+12").clicked() {
-                app.transpose_notes(cref, 12);
+            for (label, semis) in [("−12", -12), ("−1", -1), ("+1", 1), ("+12", 12)] {
+                if ui.small_button(label).on_hover_text(format!("Transpose {what}")).clicked() {
+                    app.transpose_notes(cref, semis);
+                }
             }
             if ui.small_button("Duplicate loop").clicked() {
                 app.duplicate_loop(cref);
             }
-            // Selected note details.
-            if let Some(i) = app.piano_selected
-                && let Some(n) = notes.get(i).copied()
-            {
+            ui.separator();
+            ui.toggle_value(&mut app.piano_fold, "Fold").on_hover_text("Show only pitches that have notes");
+            let label = match app.piano_scale {
+                Some((root, k)) => format!("{} {k:?}", NOTE_NAMES[root as usize % 12]),
+                None => "Scale".into(),
+            };
+            egui::ComboBox::from_id_salt("pianoscale").width(96.0).selected_text(label).show_ui(ui, |ui| {
+                if ui.selectable_label(app.piano_scale.is_none(), "No scale").clicked() {
+                    app.piano_scale = None;
+                }
+                let root = app.piano_scale.map_or(0, |s| s.0);
+                ui.horizontal_wrapped(|ui| {
+                    for (i, n) in NOTE_NAMES.iter().enumerate() {
+                        if ui.selectable_label(app.piano_scale.is_some() && root == i as u8, *n).clicked() {
+                            app.piano_scale = Some((i as u8, app.piano_scale.map_or(ScaleKind::Major, |s| s.1)));
+                        }
+                    }
+                });
                 ui.separator();
+                for k in ScaleKind::ALL {
+                    if ui.selectable_label(app.piano_scale.is_some_and(|s| s.1 == k), format!("{k:?}")).clicked() {
+                        app.piano_scale = Some((root, k));
+                    }
+                }
+            });
+            // Selection details.
+            if !sel.is_empty() {
+                ui.separator();
+                let first = *sel.iter().next().expect("non-empty");
+                let n = notes[first];
                 let mut vel = n.velocity;
                 let mut prob = n.probability * 100.0;
+                ui.label(RichText::new(format!("{} selected", sel.len())).size(11.0).color(theme::DIM));
                 let a = ui.add(egui::DragValue::new(&mut vel).range(1..=127).prefix("vel "));
                 let b = ui.add(egui::DragValue::new(&mut prob).range(0.0..=100.0).suffix("%").prefix("chance "));
+                if a.drag_started() || b.drag_started() || ((a.changed() || b.changed()) && !a.dragged() && !b.dragged()) {
+                    app.checkpoint();
+                }
                 if a.changed() || b.changed() {
-                    edit_notes(app, cref, |ns| {
-                        if let Some(m) = ns.get_mut(i) {
-                            m.velocity = vel;
-                            m.probability = prob / 100.0;
-                        }
-                    });
-                    app.rebuild_pending = matches!(cref, ClipRef::Arrangement { .. });
-                    if let ClipRef::Session { track, slot } = cref {
-                        app.push_clip(track, slot);
+                    app.set_selected_velocity(cref, a.changed().then_some(vel), b.changed().then_some(prob / 100.0));
+                    match cref {
+                        ClipRef::Session { track, slot } => app.push_clip(track, slot),
+                        ClipRef::Arrangement { .. } => app.rebuild_pending = true,
                     }
                 }
             }
@@ -280,6 +306,8 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
         let keys_w = 34.0;
         let grid_r = Rect::from_min_max(pos2(rect.left() + keys_w, rect.top()), rect.max);
 
+        // Visible rows: a 25-semitone window that the wheel scrolls, or with
+        // Fold just the pitches in use.
         const SPAN: i32 = 25;
         let mut lo = match app.piano_view {
             Some((c, lo)) if c == cref => lo,
@@ -293,43 +321,64 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
                 lo.clamp(0, 127 - SPAN)
             }
         };
-        if resp.hovered() {
+        if resp.hovered() && !app.piano_fold {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll.abs() > 0.5 {
                 lo = (lo + if scroll > 0.0 { 1 } else { -1 }).clamp(0, 127 - SPAN);
             }
         }
         app.piano_view = Some((cref, lo));
-        let hi = lo + SPAN - 1;
-        let rows = (hi - lo + 1) as f32;
-        let row_h = grid_r.height() / rows;
+        let rows: Vec<i32> = if app.piano_fold && !notes.is_empty() {
+            let set: std::collections::BTreeSet<i32> = notes.iter().map(|n| n.pitch as i32).collect();
+            set.into_iter().collect()
+        } else {
+            (lo..lo + SPAN).collect()
+        };
+        let row_h = grid_r.height() / rows.len() as f32;
         let len = clip.length.max(0.25);
         let px_beat = grid_r.width() / len as f32;
-        let y_of = |pitch: i32| grid_r.bottom() - (pitch - lo + 1) as f32 * row_h;
+        let row_of = |pitch: i32| rows.iter().position(|&p| p == pitch);
+        let y_of_row = |r: usize| grid_r.bottom() - (r + 1) as f32 * row_h;
         let x_of = |beat: f64| grid_r.left() + beat as f32 * px_beat;
-        let pitch_at = |y: f32| lo + ((grid_r.bottom() - y) / row_h).floor() as i32;
+        let pitch_at = |y: f32| {
+            let r = ((grid_r.bottom() - y) / row_h).floor() as i64;
+            match rows.get(r.clamp(0, rows.len() as i64 - 1) as usize) {
+                Some(&p) if r >= 0 && (r as usize) < rows.len() => p,
+                // Off the top/bottom: continue the scale of rows.
+                _ if r < 0 => rows[0] + r as i32,
+                _ => rows[rows.len() - 1] + (r - rows.len() as i64 + 1) as i32,
+            }
+        };
         let beat_at = |x: f32| ((x - grid_r.left()) / px_beat) as f64;
+        let in_scale = |pitch: i32| match app.piano_scale {
+            Some((root, k)) => k.degrees().contains(&(((pitch - root as i32).rem_euclid(12)) as u8)),
+            None => true,
+        };
 
         let p = ui.painter_at(rect);
         p.rect_filled(rect, 0.0, theme::BG);
-        for pitch in lo..=hi {
+        for (r, &pitch) in rows.iter().enumerate() {
             let black = matches!(pitch % 12, 1 | 3 | 6 | 8 | 10);
-            let y = y_of(pitch);
+            let y = y_of_row(r);
             let row = Rect::from_min_size(pos2(grid_r.left(), y), vec2(grid_r.width(), row_h));
-            p.rect_filled(row, 0.0, if black { theme::BG } else { theme::dim(theme::SLOT, 0.8) });
+            let fill = if app.piano_scale.is_some() {
+                if in_scale(pitch) { theme::dim(theme::SLOT, 0.9) } else { theme::BG }
+            } else if black {
+                theme::BG
+            } else {
+                theme::dim(theme::SLOT, 0.8)
+            };
+            p.rect_filled(row, 0.0, fill);
+            if app.piano_scale.is_some_and(|(root, _)| (pitch - root as i32).rem_euclid(12) == 0) {
+                p.line_segment([row.left_bottom(), row.right_bottom()], Stroke::new(1.0, theme::dim(theme::ACCENT, 0.5)));
+            }
             let key = Rect::from_min_size(pos2(rect.left(), y), vec2(keys_w - 2.0, row_h - 0.5));
             p.rect_filled(key, 0.0, if black { Color32::from_gray(40) } else { Color32::from_gray(200) });
-            if pitch % 12 == 0 && row_h >= 7.0 {
-                p.text(
-                    key.right_center() - vec2(2.0, 0.0),
-                    Align2::RIGHT_CENTER,
-                    format!("C{}", pitch / 12 - 2),
-                    FontId::proportional(row_h.min(10.0)),
-                    Color32::BLACK,
-                );
+            if (pitch % 12 == 0 || app.piano_fold) && row_h >= 7.0 {
+                let name = format!("{}{}", NOTE_NAMES[(pitch % 12) as usize], pitch / 12 - 2);
+                p.text(key.right_center() - vec2(2.0, 0.0), Align2::RIGHT_CENTER, name, FontId::proportional(row_h.min(10.0)), if black { Color32::WHITE } else { Color32::BLACK });
             }
         }
-        // Loop start shading.
         if clip.looping && clip.loop_start > 0.0 {
             p.rect_filled(Rect::from_min_max(grid_r.min, pos2(x_of(clip.loop_start), grid_r.bottom())), 0.0, Color32::from_black_alpha(60));
             p.line_segment([pos2(x_of(clip.loop_start), grid_r.top()), pos2(x_of(clip.loop_start), grid_r.bottom())], Stroke::new(1.5, theme::ACCENT));
@@ -348,26 +397,29 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             p.line_segment([pos2(x_of(b), grid_r.top()), pos2(x_of(b), grid_r.bottom())], Stroke::new(1.0, c));
             b += app.piano_grid;
         }
-        // Groove preview: where notes will actually land.
+        // Paste position.
+        let cx = x_of(app.piano_cursor.min(len));
+        p.line_segment([pos2(cx, grid_r.top()), pos2(cx, grid_r.top() + 6.0)], Stroke::new(2.0, theme::TEXT));
         let groove = clip.groove.and_then(|g| app.project.grooves.get(g)).cloned();
 
         let color = theme::rgb(clip.color);
+        let note_rect = |n: &Note| row_of(n.pitch as i32).map(|r| Rect::from_min_max(pos2(x_of(n.start), y_of_row(r) + 0.5), pos2(x_of((n.start + n.length).min(len)), y_of_row(r) + row_h - 0.5)));
         for (i, n) in notes.iter().enumerate() {
-            if (n.pitch as i32) < lo || (n.pitch as i32) > hi {
-                continue;
-            }
-            let r = Rect::from_min_max(
-                pos2(x_of(n.start), y_of(n.pitch as i32) + 0.5),
-                pos2(x_of((n.start + n.length).min(len)), y_of(n.pitch as i32) + row_h - 0.5),
-            );
+            let Some(r) = note_rect(n) else { continue };
             let vel = 0.45 + 0.55 * n.velocity as f32 / 127.0;
             let mut fill = theme::dim(color, vel);
             if n.probability < 1.0 {
                 fill = fill.gamma_multiply(0.5 + 0.5 * n.probability);
             }
+            let s = sel.contains(&i);
+            if s {
+                fill = Color32::from_rgb(fill.r().saturating_add(60), fill.g().saturating_add(60), fill.b().saturating_add(60));
+            }
             p.rect_filled(r, 2.0, fill);
-            let sel = app.piano_selected == Some(i);
-            p.rect_stroke(r, 2.0, Stroke::new(if sel { 1.5 } else { 0.5 }, if sel { Color32::WHITE } else { Color32::BLACK }), StrokeKind::Inside);
+            p.rect_stroke(r, 2.0, Stroke::new(if s { 1.5 } else { 0.5 }, if s { Color32::WHITE } else { Color32::BLACK }), StrokeKind::Inside);
+            if !in_scale(n.pitch as i32) {
+                p.circle_filled(r.left_center() + vec2(3.0, 0.0), 1.5, theme::REC);
+            }
             if let Some(g) = &groove {
                 let (off, _) = g.apply(n.start);
                 if off.abs() > 1e-4 {
@@ -377,102 +429,117 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             }
         }
 
-        // Playhead for clips that are playing.
         let pos = match cref {
-            ClipRef::Session { track, slot } => {
-                app.engine.state.tracks.get(track).filter(|ts| ts.playing_slot.load(Relaxed) == slot as i32).map(|ts| ts.clip_position.load())
+            ClipRef::Session { track, slot } => app.engine.state.tracks.get(track).filter(|ts| ts.playing_slot.load(Relaxed) == slot as i32).map(|ts| ts.clip_position.load()),
+            ClipRef::Arrangement { track, index } => {
+                app.engine.state.tracks.get(track).filter(|ts| ts.arrangement_clip.load(Relaxed) == index as i32 && ts.playing_slot.load(Relaxed) < 0).map(|ts| ts.clip_position.load())
             }
-            ClipRef::Arrangement { track, index } => app
-                .engine
-                .state
-                .tracks
-                .get(track)
-                .filter(|ts| ts.arrangement_clip.load(Relaxed) == index as i32 && ts.playing_slot.load(Relaxed) < 0)
-                .map(|ts| ts.clip_position.load()),
         };
         if let Some(cp) = pos {
             let x = x_of(cp);
             p.line_segment([pos2(x, grid_r.top()), pos2(x, grid_r.bottom())], Stroke::new(1.5, theme::ACCENT));
         }
 
-        // Interaction.
+        // ---- Interaction ----
         let hit = |pos: egui::Pos2| -> Option<(usize, bool)> {
-            let pitch = pitch_at(pos.y);
-            let beat = beat_at(pos.x);
-            notes.iter().enumerate().rev().find(|(_, n)| n.pitch as i32 == pitch && beat >= n.start && beat <= n.start + n.length).map(|(i, n)| {
-                let right_edge = x_of(n.start + n.length);
-                (i, (right_edge - pos.x) < 6.0)
+            notes.iter().enumerate().rev().find_map(|(i, n)| {
+                let r = note_rect(n)?;
+                r.expand2(vec2(0.0, 0.5)).contains(pos).then(|| (i, (r.right() - pos.x) < 6.0 && r.width() > 8.0))
             })
         };
         let snap = |b: f64, g: f64| (b / g).floor() * g;
         let grid = app.piano_grid;
+        let mods = ui.input(|i| i.modifiers);
         if let Some((_, true)) = resp.hover_pos().and_then(hit) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
         }
 
         if resp.double_clicked()
-            && let Some((i, _)) = resp.interact_pointer_pos().and_then(hit)
+            && let Some(pos) = resp.interact_pointer_pos()
         {
-            app.checkpoint();
-            edit_notes(app, cref, |ns| {
-                ns.remove(i);
-            });
-            app.piano_selected = None;
-            app.commit_clip(cref);
+            match hit(pos) {
+                Some((i, _)) => {
+                    app.checkpoint();
+                    edit_notes(app, cref, |ns| {
+                        ns.remove(i);
+                    });
+                    app.piano_sel.clear();
+                    app.commit_clip(cref);
+                }
+                None if grid_r.contains(pos) => add_note(app, cref, snap(beat_at(pos.x), grid), pitch_at(pos.y), grid, len),
+                None => {}
+            }
             return;
         }
         if resp.clicked()
             && let Some(pos) = resp.interact_pointer_pos()
         {
+            app.piano_cursor = snap(beat_at(pos.x), grid).clamp(0.0, len);
             match hit(pos) {
-                Some((i, _)) => app.piano_selected = Some(i),
-                None if grid_r.contains(pos) => {
-                    let start = snap(beat_at(pos.x), grid);
-                    let pitch = pitch_at(pos.y).clamp(0, 127) as u8;
-                    if start < len {
-                        app.checkpoint();
-                        let mut idx = 0;
-                        edit_notes(app, cref, |ns| {
-                            ns.push(Note::new(pitch, start, grid, 100));
-                            idx = ns.len() - 1;
-                        });
-                        app.piano_selected = Some(idx);
-                        app.commit_clip(cref);
+                Some((i, _)) if mods.shift || mods.command => {
+                    if !app.piano_sel.remove(&i) {
+                        app.piano_sel.insert(i);
                     }
                 }
+                Some((i, _)) => app.piano_sel = [i].into_iter().collect(),
+                // A click on empty grid clears the selection; with nothing selected it draws a note.
+                None if grid_r.contains(pos) && !sel.is_empty() => app.piano_sel.clear(),
+                None if grid_r.contains(pos) => add_note(app, cref, snap(beat_at(pos.x), grid), pitch_at(pos.y), grid, len),
                 None => {}
             }
         }
         if resp.drag_started()
-            && let Some(pos) = resp.interact_pointer_pos()
-            && let Some((i, resize)) = hit(pos)
+            && let Some(pos) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
         {
-            app.checkpoint();
-            app.piano_selected = Some(i);
-            app.piano_drag = Some((i, resize, notes[i], beat_at(pos.x), pitch_at(pos.y)));
+            // The press point, not where the pointer is once the drag registers.
+            let (b0, p0) = (beat_at(pos.x), pitch_at(pos.y));
+            match hit(pos) {
+                Some((i, resize)) => {
+                    if !app.piano_sel.contains(&i) {
+                        if !(mods.shift || mods.command) {
+                            app.piano_sel.clear();
+                        }
+                        app.piano_sel.insert(i);
+                    }
+                    app.checkpoint();
+                    let origs = app.selected_notes(cref).into_iter().filter_map(|j| notes.get(j).map(|n| (j, *n))).collect();
+                    let mode = if resize { PianoDragMode::Resize } else { PianoDragMode::Move };
+                    app.piano_drag = Some(PianoDrag { mode, origs, beat0: b0, pitch0: p0 });
+                }
+                None => {
+                    app.piano_drag = Some(PianoDrag { mode: PianoDragMode::Marquee { additive: mods.shift || mods.command }, origs: Vec::new(), beat0: b0, pitch0: p0 });
+                }
+            }
         }
-        if let (Some((i, resize, orig, b0, p0)), Some(pos)) = (app.piano_drag, resp.interact_pointer_pos())
+        if let (Some(d), Some(pos)) = (app.piano_drag.clone(), resp.interact_pointer_pos())
             && resp.dragged()
         {
-            let db = ((beat_at(pos.x) - b0) / grid).round() * grid;
-            let dp = pitch_at(pos.y) - p0;
-            edit_notes(app, cref, |ns| {
-                if let Some(n) = ns.get_mut(i) {
-                    if resize {
-                        n.length = (orig.length + db).max(grid.min(orig.length));
-                    } else {
-                        n.start = (orig.start + db).clamp(0.0, (len - grid).max(0.0));
-                        n.pitch = (orig.pitch as i32 + dp).clamp(0, 127) as u8;
-                    }
+            match d.mode {
+                PianoDragMode::Marquee { additive } => {
+                    let start_y = rows.iter().position(|&q| q == d.pitch0).map_or(pos.y, |r| y_of_row(r) + row_h * 0.5);
+                    let r = Rect::from_two_pos(pos2(x_of(d.beat0), start_y), pos).intersect(grid_r);
+                    p.rect_filled(r, 0.0, theme::ACCENT.gamma_multiply(0.12));
+                    p.rect_stroke(r, 0.0, Stroke::new(1.0, theme::ACCENT), StrokeKind::Inside);
+                    app.select_notes_in(cref, beat_at(r.left()), beat_at(r.right()), pitch_at(r.bottom() - 0.5), pitch_at(r.top() + 0.5), additive);
                 }
-            });
+                _ => {
+                    // Alt disables grid snapping, like most piano rolls.
+                    let raw = beat_at(pos.x) - d.beat0;
+                    let db = if mods.alt { raw } else { (raw / grid).round() * grid };
+                    let dp = pitch_at(pos.y) - d.pitch0;
+                    app.apply_piano_drag(cref, &d, db, if matches!(d.mode, PianoDragMode::Move) { dp } else { 0 }, grid, len);
+                }
+            }
         }
         if resp.drag_stopped() && app.piano_drag.is_some() {
-            app.piano_drag = None;
-            app.commit_clip(cref);
+            let d = app.piano_drag.take();
+            if !matches!(d.map(|d| d.mode), Some(PianoDragMode::Marquee { .. })) {
+                app.commit_clip(cref);
+            }
         }
 
-        // Velocity lane.
+        // Velocity lane: drag over notes to set velocity. With a selection,
+        // only selected notes change.
         let (vr, vresp) = ui.allocate_exact_size(vec2(rect.width(), vel_h), Sense::click_and_drag());
         let vp = ui.painter_at(vr);
         vp.rect_filled(vr, 0.0, theme::BG);
@@ -481,26 +548,24 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
         for (i, n) in notes.iter().enumerate() {
             let x = x_of(n.start);
             let h = n.velocity as f32 / 127.0 * lane.height();
-            let sel = app.piano_selected == Some(i);
-            vp.line_segment(
-                [pos2(x + 1.0, lane.bottom()), pos2(x + 1.0, lane.bottom() - h)],
-                Stroke::new(3.0, if sel { Color32::WHITE } else { theme::dim(color, 0.9) }),
-            );
+            let s = sel.contains(&i);
+            vp.line_segment([pos2(x + 1.0, lane.bottom()), pos2(x + 1.0, lane.bottom() - h)], Stroke::new(3.0, if s { Color32::WHITE } else { theme::dim(color, 0.9) }));
         }
         if (vresp.dragged() || vresp.clicked())
             && let Some(pos) = vresp.interact_pointer_pos()
         {
-            // Set the velocity of the note(s) nearest the pointer.
             let b = beat_at(pos.x);
             let v = (((lane.bottom() - pos.y) / lane.height()).clamp(0.0, 1.0) * 126.0 + 1.0).round() as u8;
             let tol = (4.0 / px_beat) as f64;
             if vresp.drag_started() || vresp.clicked() {
                 app.checkpoint();
             }
-            // Every note under the pointer (chords move together).
+            let only = sel.clone();
             edit_notes(app, cref, |ns| {
-                for n in ns.iter_mut().filter(|n| (n.start - b).abs() <= tol) {
-                    n.velocity = v;
+                for (i, n) in ns.iter_mut().enumerate() {
+                    if (n.start - b).abs() <= tol && (only.is_empty() || only.contains(&i)) {
+                        n.velocity = v;
+                    }
                 }
             });
             app.dirty = true;
@@ -509,6 +574,26 @@ fn piano_roll(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
             app.commit_clip(cref);
         }
     });
+}
+
+fn add_note(app: &mut App, cref: ClipRef, start: f64, pitch: i32, grid: f64, len: f64) {
+    if start >= len || start < 0.0 {
+        return;
+    }
+    let pitch = pitch.clamp(0, 127) as u8;
+    let pitch = match app.piano_scale {
+        Some((root, k)) => k.snap(root, pitch),
+        None => pitch,
+    };
+    app.checkpoint();
+    let mut idx = 0;
+    edit_notes(app, cref, |ns| {
+        ns.push(Note::new(pitch, start, grid, 100));
+        idx = ns.len() - 1;
+    });
+    app.piano_sel = [idx].into_iter().collect();
+    app.piano_cursor = start + grid;
+    app.commit_clip(cref);
 }
 
 fn edit_notes(app: &mut App, cref: ClipRef, f: impl FnOnce(&mut Vec<Note>)) {
@@ -575,7 +660,9 @@ fn waveform(app: &mut App, ui: &mut egui::Ui, cref: ClipRef) {
         let mut hit = None;
         for (i, m) in a.warp_markers.iter().enumerate() {
             let x = x_of(m.beat);
-            let near = resp.hover_pos().is_some_and(|q| (q.x - x).abs() < 6.0 && q.y < strip.bottom() + 4.0)
+            let press = if resp.drag_started() { ui.input(|i| i.pointer.press_origin()) } else { None };
+            let near = press.is_some_and(|q| (q.x - x).abs() < 6.0 && q.y < strip.bottom() + 4.0)
+                || resp.hover_pos().is_some_and(|q| (q.x - x).abs() < 6.0 && q.y < strip.bottom() + 4.0)
                 || resp.interact_pointer_pos().is_some_and(|q| (q.x - x).abs() < 6.0 && q.y < strip.bottom() + 4.0);
             if near {
                 hit = Some(i);

@@ -276,7 +276,7 @@ fn ruler(
     }
     // Drag on the ruler sets the loop brace.
     if r_resp.drag_started()
-        && let Some(pos) = r_resp.interact_pointer_pos()
+        && let Some(pos) = ui.input(|i| i.pointer.press_origin()).or(r_resp.interact_pointer_pos())
     {
         app.loop_drag = Some(snap_floor(beat_of(pos.x)));
     }
@@ -373,7 +373,8 @@ fn tempo_lane(
     for (i, &(b, bpm)) in pts.iter().enumerate() {
         let c = pos2(x_of(b), y_of(bpm));
         p.circle_filled(c, 3.5, theme::ACCENT);
-        if resp.interact_pointer_pos().is_some_and(|q| q.distance(c) < 7.0) || resp.hover_pos().is_some_and(|q| q.distance(c) < 7.0) {
+        let press = if resp.drag_started() { ui.input(|i| i.pointer.press_origin()) } else { None };
+        if press.is_some_and(|q| q.distance(c) < 7.0) || resp.interact_pointer_pos().is_some_and(|q| q.distance(c) < 7.0) || resp.hover_pos().is_some_and(|q| q.distance(c) < 7.0) {
             hit = Some(i);
             p.text(c + vec2(6.0, -8.0), Align2::LEFT_BOTTOM, format!("{bpm:.1}"), FontId::proportional(10.0), theme::TEXT);
         }
@@ -590,7 +591,7 @@ fn track_lane(
             act.select = Some(cref);
         }
         if c_resp.drag_started()
-            && let Some(pos) = c_resp.interact_pointer_pos()
+            && let Some(pos) = ui.input(|i| i.pointer.press_origin()).or(c_resp.interact_pointer_pos())
         {
             let mode = if pos.x - r.left() < EDGE {
                 ArrDragMode::Trim
@@ -634,7 +635,7 @@ fn track_lane(
 fn apply_lane_actions(app: &mut App, act: LaneActions, bar: f64) {
     if let Some(c) = act.select {
         app.selected_clip = Some(c);
-        app.piano_selected = None;
+        app.piano_sel.clear();
         app.detail_tab = DetailTab::Clip;
         if let ClipRef::Arrangement { track, .. } = c {
             app.selected_track = Some(track);
@@ -751,7 +752,8 @@ fn automation_lane(
     let mut hit = None;
     for (i, &(b, v)) in pts.iter().enumerate() {
         let c = pos2(x_of(b), y_of(v));
-        let near = resp.hover_pos().is_some_and(|q| q.distance(c) < 7.0) || resp.interact_pointer_pos().is_some_and(|q| q.distance(c) < 7.0);
+        let press = if resp.drag_started() { ui.input(|i| i.pointer.press_origin()) } else { None };
+        let near = press.is_some_and(|q| q.distance(c) < 7.0) || resp.hover_pos().is_some_and(|q| q.distance(c) < 7.0) || resp.interact_pointer_pos().is_some_and(|q| q.distance(c) < 7.0);
         p.circle_filled(c, if near { 4.5 } else { 3.0 }, color);
         if near {
             hit = Some(i);
