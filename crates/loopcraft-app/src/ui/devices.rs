@@ -89,11 +89,10 @@ fn device_box(app: &mut App, ui: &mut egui::Ui, ch: TrackRef, dev: DeviceRef, pa
                 ui.label(RichText::new(spec.name()).strong().color(if bypassed { theme::DIM } else { title_color(spec) }));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if top {
-                        if dev != DeviceRef::Instrument || matches!(ch, TrackRef::Track(_)) {
-                            if ui.small_button("x").on_hover_text("Remove").clicked() {
+                        if (dev != DeviceRef::Instrument || matches!(ch, TrackRef::Track(_)))
+                            && ui.small_button("x").on_hover_text("Remove").clicked() {
                                 app.remove_device(ch, dev);
                             }
-                        }
                         if let Some((i, n)) = pos {
                             if i + 1 < n && ui.small_button("▶").on_hover_text("Move right").clicked() {
                                 app.move_device(ch, dev, false);

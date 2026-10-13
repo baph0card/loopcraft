@@ -401,7 +401,7 @@ impl PvStretcher {
 
     #[inline]
     pub fn next(&mut self, buf: &AudioBuffer, source_pos: f64) -> (f32, f32) {
-        if self.counter % self.hop == 0 {
+        if self.counter.is_multiple_of(self.hop) {
             for ch in 0..2 {
                 self.frame(buf, ch, source_pos);
             }

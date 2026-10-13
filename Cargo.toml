@@ -62,3 +62,8 @@ codegen-units = 4
 should_implement_trait = "allow"
 too_many_arguments = "allow"
 field_reassign_with_default = "allow"
+# DSP loops index several buffers in lockstep; ranges read clearer there.
+needless_range_loop = "allow"
+# Recordings travel between threads as boxes on purpose (one pointer per ring slot).
+vec_box = "allow"
+boxed_local = "allow"
