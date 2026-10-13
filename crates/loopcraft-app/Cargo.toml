@@ -18,6 +18,10 @@ loopcraft-engine.workspace = true
 loopcraft-io.workspace = true
 loopcraft-plugin.workspace = true
 cpal.workspace = true
+midir.workspace = true
+rtrb.workspace = true
+serde_json.workspace = true
+serde.workspace = true
 eframe.workspace = true
 anyhow.workspace = true
 

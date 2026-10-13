@@ -277,6 +277,8 @@ pub struct Track {
     pub bypassed: Vec<usize>,
     /// Instrument switched off.
     pub instrument_bypassed: bool,
+    /// MIDI effects (by index in `midi_effects`) that are switched off.
+    pub midi_bypassed: Vec<usize>,
 }
 
 impl Default for Track {
@@ -307,6 +309,7 @@ impl Track {
             crossfade: CrossfadeAssign::None,
             bypassed: Vec::new(),
             instrument_bypassed: false,
+            midi_bypassed: Vec::new(),
         }
     }
 
@@ -695,20 +698,24 @@ pub struct ArrangementClip {
     /// loops, the content repeats; `None` means exactly one clip length.
     #[serde(default)]
     pub duration: Option<Beats>,
+    /// Clip position (beats) at the region's left edge, so a region can
+    /// start partway into its clip (after a split or a left-edge trim).
+    #[serde(default)]
+    pub offset: Beats,
     pub clip: Clip,
 }
 
 impl ArrangementClip {
     pub fn new(start: Beats, clip: Clip) -> Self {
-        Self { start, duration: None, clip }
+        Self { start, duration: None, offset: 0.0, clip }
     }
 
     pub fn looped(start: Beats, duration: Beats, clip: Clip) -> Self {
-        Self { start, duration: Some(duration), clip }
+        Self { start, duration: Some(duration), offset: 0.0, clip }
     }
 
     pub fn duration(&self) -> Beats {
-        self.duration.unwrap_or(self.clip.length)
+        self.duration.unwrap_or((self.clip.length - self.offset).max(0.0))
     }
 
     pub fn end(&self) -> Beats {

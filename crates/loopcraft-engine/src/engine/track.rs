@@ -130,6 +130,8 @@ pub(crate) struct SessionPlay {
 
 pub(crate) struct ArrClip {
     pub start: Beats,
+    /// Clip position at `start`.
+    pub offset: Beats,
     pub end: Beats,
     pub clip: RtClip,
 }
@@ -262,8 +264,8 @@ pub(crate) fn render_track_source(t: &mut Track, ctx: &ProcessContext, fx_ctx: &
             }
             if let Some(i) = idx {
                 let a = &t.arrangement[i];
-                let place = Placement { start: a.start, end: Some(a.end) };
-                t.clip_pos = a.clip.local(b0 - a.start);
+                let place = Placement { start: a.start - a.offset, end: Some(a.end) };
+                t.clip_pos = a.clip.local(b0 - place.start);
                 match &a.clip.content {
                     RtContent::Midi(notes) => {
                         schedule_midi(notes, &a.clip, place, b0, b1, frames, &mut t.events);

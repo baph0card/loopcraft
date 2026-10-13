@@ -44,7 +44,7 @@ eframe = { version = "0.36", default-features = false, features = ["glow", "defa
 anyhow = "1"
 rustfft = "6"
 symphonia = { version = "0.5", features = ["mp3", "aiff"] }
-midir = "0.10"
+midir = "0.11"
 flacenc = "0.5"
 
 [profile.dev]

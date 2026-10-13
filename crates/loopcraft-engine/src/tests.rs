@@ -312,3 +312,20 @@ fn transpose_shifts_pitch_in_stretch_and_complex() {
         assert!((hz - 440.0).abs() < 15.0, "{mode:?}: {hz}");
     }
 }
+
+#[test]
+fn region_offset_starts_partway_into_the_clip() {
+    // Clip: one short note at beat 2 of 4. A region at beat 0 with offset 2
+    // must play that note immediately, and nothing before it.
+    let mut p = Project::default();
+    p.add_scene("1");
+    p.add_track(synth_track());
+    let clip = Clip { looping: false, ..Clip::midi("c", 4.0, vec![Note::new(60, 2.0, 0.5, 100)]) };
+    p.tracks[0].arrangement.push(ArrangementClip { start: 1.0, duration: Some(2.0), offset: 2.0, clip });
+    let (mut e, mut h) = engine_for(&p);
+    h.send(Command::Play).ok();
+    let out = render(&mut e, beats(4.0, 120.0));
+    let on = first_onset(&out).expect("note plays");
+    assert!(on.abs_diff(beats(1.0, 120.0)) < 64, "onset at {on}, expected ~{}", beats(1.0, 120.0));
+    assert!(peak(&out[beats(1.8, 120.0)..]) < 1e-3, "note ends with its length");
+}

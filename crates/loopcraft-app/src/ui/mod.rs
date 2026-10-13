@@ -5,12 +5,14 @@
 mod arrangement;
 mod browser;
 mod detail;
+mod devices;
 mod session;
 mod transport;
+mod windows;
 
-use crate::app::{App, ClipRef, DialogKind, View};
+use crate::app::{App, ClipRef, DialogKind, MapMode, View};
 use eframe::egui::{self, Color32, Key};
-use loopcraft_core::TrackKind;
+use loopcraft_core::{MappingSource, MappingTarget};
 use loopcraft_engine::Command;
 
 pub mod theme {
@@ -26,13 +28,17 @@ pub mod theme {
     pub const PLAY: Color32 = Color32::from_rgb(0x6f, 0xdc, 0x6f);
     pub const REC: Color32 = Color32::from_rgb(0xf0, 0x50, 0x50);
     pub const SOLO: Color32 = Color32::from_rgb(0x4f, 0x9c, 0xff);
+    pub const MIDI_MAP: Color32 = Color32::from_rgb(0x8a, 0x5c, 0xf0);
+    pub const KEY_MAP: Color32 = Color32::from_rgb(0xf0, 0xa0, 0x30);
+    pub const XFADE_A: Color32 = Color32::from_rgb(0xf0, 0xb0, 0x40);
+    pub const XFADE_B: Color32 = Color32::from_rgb(0x40, 0xb0, 0xf0);
 
     pub fn rgb(c: [u8; 3]) -> Color32 {
         Color32::from_rgb(c[0], c[1], c[2])
     }
 
     pub fn dim(c: Color32, f: f32) -> Color32 {
-        let m = |x: u8| (x as f32 * f) as u8;
+        let m = |x: u8| (x as f32 * f).min(255.0) as u8;
         Color32::from_rgb(m(c.r()), m(c.g()), m(c.b()))
     }
 }
@@ -74,13 +80,37 @@ const KEYMAP: [(Key, i32); 17] = [
     (Key::Semicolon, 16),
 ];
 
+fn key_char(key: Key) -> Option<char> {
+    let n = key.symbol_or_name();
+    let mut it = n.chars();
+    let c = it.next()?;
+    it.next().is_none().then(|| c.to_ascii_lowercase())
+}
+
 fn handle_keys(app: &mut App, ctx: &egui::Context) {
     if ctx.egui_wants_keyboard_input() || app.dialog.is_some() || app.renaming.is_some() {
         return;
     }
     let events = ctx.input(|i| i.events.clone());
-    let kb_track = app.selected_track.filter(|&t| app.computer_keys && app.project.tracks.get(t).is_some_and(|t| t.kind == TrackKind::Midi));
+    let live = app.live_targets();
+    let kb = app.computer_keys && !live.is_empty() && app.map_mode.is_none();
     for ev in events {
+        match &ev {
+            egui::Event::Copy => {
+                if let Some(c) = app.selected_clip.and_then(|c| app.clip(c)).cloned() {
+                    app.clipboard = Some(c);
+                    app.status = "Copied clip".into();
+                }
+                continue;
+            }
+            egui::Event::Paste(_) => {
+                if let (Some(c), Some(ClipRef::Session { track, slot })) = (app.clipboard.clone(), app.selected_clip) {
+                    app.paste_clip(track, slot, c);
+                }
+                continue;
+            }
+            _ => {}
+        }
         let egui::Event::Key { key, pressed, repeat, modifiers, .. } = ev else { continue };
         if modifiers.command {
             if !pressed {
@@ -94,26 +124,60 @@ fn handle_keys(app: &mut App, ctx: &egui::Context) {
                 Key::Z if modifiers.shift => app.redo(),
                 Key::Z => app.undo(),
                 Key::Y => app.redo(),
-                Key::D => {
-                    if let Some(ClipRef::Session { track, slot }) = app.selected_clip {
-                        app.duplicate_clip_down(track, slot);
+                Key::D => match app.selected_clip {
+                    Some(ClipRef::Session { track, slot }) => app.duplicate_clip_down(track, slot),
+                    Some(ClipRef::Arrangement { track, index }) => app.duplicate_arrangement_clip(track, index),
+                    None => {}
+                },
+                Key::E => {
+                    if let Some(ClipRef::Arrangement { track, index }) = app.selected_clip {
+                        let at = app.engine.state.beat.load();
+                        app.split_arrangement_clip(track, index, at);
                     }
                 }
+                Key::G => app.group_selected(),
+                Key::T if modifiers.shift => {
+                    app.add_midi_track(loopcraft_core::DeviceSpec::PolySynth(Default::default()));
+                }
+                Key::T => {
+                    app.add_audio_track();
+                }
+                Key::M => toggle_map(app, MapMode::Midi),
+                Key::K => toggle_map(app, MapMode::Key),
+                Key::Comma => app.open_settings(),
                 _ => {}
             }
             continue;
         }
-        if let (Some(t), Some(&(_, semi))) = (kb_track, KEYMAP.iter().find(|(k, _)| *k == key)) {
+        if pressed && !repeat && key == Key::Escape {
+            app.map_mode = None;
+            app.map_target = None;
+            app.macro_learn = None;
+            continue;
+        }
+        // Key mappings (and key-map learn) take precedence over the piano keys.
+        if pressed
+            && !repeat
+            && let Some(c) = key_char(key)
+            && app.key_mapping(c)
+        {
+            continue;
+        }
+        if kb && let Some(&(_, semi)) = KEYMAP.iter().find(|(k, _)| *k == key) {
             if repeat {
                 continue;
             }
             if pressed {
                 let note = (60 + app.octave * 12 + semi).clamp(0, 127) as u8;
                 app.held_notes.push((key, note));
-                app.send(Command::NoteOn { track: t, note, velocity: 100 });
+                for &t in &live {
+                    app.send(Command::NoteOn { track: t, note, velocity: app.key_velocity });
+                }
             } else if let Some(i) = app.held_notes.iter().position(|(k, _)| *k == key) {
                 let (_, note) = app.held_notes.remove(i);
-                app.send(Command::NoteOff { track: t, note });
+                for &t in &live {
+                    app.send(Command::NoteOff { track: t, note });
+                }
             }
             continue;
         }
@@ -122,15 +186,27 @@ fn handle_keys(app: &mut App, ctx: &egui::Context) {
         }
         match key {
             Key::Space => {
-                if app.engine.state.playing.load(std::sync::atomic::Ordering::Relaxed) {
+                if app.playing() {
                     app.send(Command::Stop);
-                } else {
+                } else if modifiers.shift {
                     app.send(Command::Play);
+                } else {
+                    app.play();
                 }
             }
             Key::Tab => app.view = if app.view == View::Session { View::Arrangement } else { View::Session },
-            Key::Z if kb_track.is_some() => app.octave = (app.octave - 1).max(-4),
-            Key::X if kb_track.is_some() => app.octave = (app.octave + 1).min(4),
+            Key::F9 => app.toggle_arrangement_record(),
+            Key::Z if kb => app.octave = (app.octave - 1).max(-4),
+            Key::X if kb => app.octave = (app.octave + 1).min(4),
+            Key::C if kb => app.key_velocity = app.key_velocity.saturating_sub(20).max(1),
+            Key::V if kb => app.key_velocity = (app.key_velocity + 20).min(127),
+            Key::ArrowUp if app.view == View::Session => app.selected_scene = app.selected_scene.saturating_sub(1),
+            Key::ArrowDown if app.view == View::Session => app.selected_scene = (app.selected_scene + 1).min(app.project.scenes.len().saturating_sub(1)),
+            Key::Enter if app.view == View::Session => {
+                let s = app.selected_scene;
+                app.send(Command::LaunchScene { scene: s });
+                app.selected_scene = (s + 1).min(app.project.scenes.len().saturating_sub(1));
+            }
             Key::Delete | Key::Backspace => {
                 if let (Some(n), Some(c)) = (app.piano_selected, app.selected_clip) {
                     app.checkpoint();
@@ -150,28 +226,82 @@ fn handle_keys(app: &mut App, ctx: &egui::Context) {
     }
 }
 
+pub fn toggle_map(app: &mut App, m: MapMode) {
+    app.map_mode = if app.map_mode == Some(m) { None } else { Some(m) };
+    app.map_target = None;
+    app.status = match app.map_mode {
+        Some(MapMode::Midi) => "MIDI Map: click a control, then move a knob or press a pad (Esc to finish)".into(),
+        Some(MapMode::Key) => "Key Map: click a control, then press a computer key (Esc to finish)".into(),
+        None => String::new(),
+    };
+}
+
+/// In map mode, cover a control with a clickable overlay that picks it as
+/// the mapping target (and shows its current mapping).
+pub fn mappable(app: &mut App, ui: &mut egui::Ui, rect: egui::Rect, target: MappingTarget) {
+    let Some(mode) = app.map_mode else { return };
+    let resp = ui.interact(rect, ui.id().with(("map", format!("{target:?}"))), egui::Sense::click());
+    let color = if mode == MapMode::Midi { theme::MIDI_MAP } else { theme::KEY_MAP };
+    let picked = app.map_target == Some(target);
+    let p = ui.painter();
+    p.rect_filled(rect, 2.0, color.gamma_multiply(if picked { 0.85 } else if resp.hovered() { 0.6 } else { 0.4 }));
+    let existing = app.project.mappings.iter().find(|m| m.target == target).map(|m| match m.source {
+        MappingSource::Cc { channel, cc } => format!("{}/CC{cc}", channel + 1),
+        MappingSource::Note { channel, note } => format!("{}/N{note}", channel + 1),
+        MappingSource::Key(c) => c.to_uppercase().to_string(),
+    });
+    if let Some(label) = existing {
+        p.text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::monospace(10.0), Color32::WHITE);
+    }
+    if resp.clicked() {
+        app.pick_map_target(target);
+    }
+}
+
 fn dialogs(app: &mut App, ctx: &egui::Context) {
     let Some(d) = app.dialog.as_mut() else { return };
     let title = match d.kind {
         DialogKind::Open => "Open Project",
         DialogKind::SaveAs => "Save Project As",
         DialogKind::Export => "Export Audio",
+        DialogKind::SavePreset => "Save Device Preset",
     };
     let mut action: Option<bool> = None;
+    let recent = app.settings.recent.clone();
     egui::Window::new(title).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-        ui.label("File path:");
+        ui.label(if d.kind == DialogKind::SavePreset { "Preset name:" } else { "File path:" });
         let r = ui.add(egui::TextEdit::singleline(&mut d.path).desired_width(460.0));
+        if d.kind == DialogKind::Open && !recent.is_empty() {
+            ui.label(egui::RichText::new("Recent").color(theme::DIM));
+            for p in recent.iter().take(6) {
+                if ui.add(egui::Button::new(egui::RichText::new(p.display().to_string()).size(11.0)).frame(false)).clicked() {
+                    d.path = p.display().to_string();
+                }
+            }
+        }
         if d.kind == DialogKind::Export {
             ui.horizontal(|ui| {
                 ui.radio_value(&mut d.export_arrangement, true, "Arrangement");
                 ui.radio_value(&mut d.export_arrangement, false, "All scenes, 8 bars each");
             });
-            ui.label(egui::RichText::new("48 kHz, 24-bit WAV").color(theme::DIM));
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("exportfmt").selected_text(crate::app::EXPORT_FORMATS[d.export_format].0).show_ui(ui, |ui| {
+                    for (i, f) in crate::app::EXPORT_FORMATS.iter().enumerate() {
+                        ui.selectable_value(&mut d.export_format, i, f.0);
+                    }
+                });
+                egui::ComboBox::from_id_salt("exportrate").selected_text(format!("{} Hz", d.export_rate)).show_ui(ui, |ui| {
+                    for r in crate::app::EXPORT_RATES {
+                        ui.selectable_value(&mut d.export_rate, r, format!("{r} Hz"));
+                    }
+                });
+                ui.checkbox(&mut d.export_stems, "Stems (one file per track)");
+            });
         }
         ui.horizontal(|ui| {
             let label = match d.kind {
                 DialogKind::Open => "Open",
-                DialogKind::SaveAs => "Save",
+                DialogKind::SaveAs | DialogKind::SavePreset => "Save",
                 DialogKind::Export => "Export",
             };
             if ui.button(label).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))) {
@@ -189,7 +319,12 @@ fn dialogs(app: &mut App, ctx: &egui::Context) {
             match d.kind {
                 DialogKind::Open => app.open(&path),
                 DialogKind::SaveAs => app.save_to(&path),
-                DialogKind::Export => app.export(path, d.export_arrangement),
+                DialogKind::Export => app.export(path, d.export_arrangement, d.export_stems, d.export_format, d.export_rate),
+                DialogKind::SavePreset => {
+                    if let Some(spec) = d.preset_spec {
+                        app.save_preset(&spec, d.path.trim());
+                    }
+                }
             }
         }
     }
@@ -202,14 +337,18 @@ impl eframe::App for App {
         handle_keys(self, &ctx);
 
         egui::Panel::top("transport").frame(egui::Frame::new().fill(theme::BG).inner_margin(6)).show(ui, |ui| transport::show(self, ui));
-        egui::Panel::left("browser").resizable(true).default_size(170.0).show(ui, |ui| browser::show(self, ui));
-        egui::Panel::bottom("detail").resizable(true).default_size(260.0).min_size(180.0).show(ui, |ui| detail::show(self, ui));
+        egui::Panel::bottom("status").frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::symmetric(8, 2))).show(ui, |ui| transport::status_bar(self, ui));
+        egui::Panel::left("browser").resizable(true).default_size(190.0).show(ui, |ui| browser::show(self, ui));
+        egui::Panel::bottom("detail").resizable(true).default_size(330.0).min_size(220.0).show(ui, |ui| detail::show(self, ui));
         egui::CentralPanel::default_margins().show(ui, |ui| match self.view {
             View::Session => session::show(self, ui),
             View::Arrangement => arrangement::show(self, ui),
         });
         dialogs(self, &ctx);
+        windows::show(self, &ctx);
 
+        let pointer_down = ctx.input(|i| i.pointer.any_down());
+        self.end_frame(pointer_down);
         let title = format!("{}{} — LoopCraft", self.project.name, if self.dirty { " •" } else { "" });
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
@@ -289,4 +428,40 @@ pub fn small_toggle(ui: &mut egui::Ui, on: bool, label: &str, on_color: Color32)
     let fill = if on { on_color } else { theme::SLOT };
     let text = egui::RichText::new(label).color(if on { Color32::BLACK } else { theme::TEXT }).size(11.0);
     ui.add(egui::Button::new(text).fill(fill).min_size(egui::vec2(20.0, 18.0)))
+}
+
+/// A rotary knob: drag up/down, double-click resets to `default`.
+pub fn knob(ui: &mut egui::Ui, value: &mut f32, min: f32, max: f32, default: f32, size: f32, color: Color32) -> egui::Response {
+    let (rect, mut resp) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click_and_drag());
+    let span = (max - min).max(1e-9);
+    if resp.dragged() {
+        let fine = ui.input(|i| i.modifiers.shift);
+        let d = -resp.drag_delta().y / if fine { 600.0 } else { 150.0 } * span;
+        *value = (*value + d).clamp(min.min(max), max.max(min));
+        resp.mark_changed();
+    }
+    if resp.double_clicked() {
+        *value = default;
+        resp.mark_changed();
+    }
+    let t = ((*value - min) / span).clamp(0.0, 1.0);
+    let p = ui.painter();
+    let c = rect.center();
+    let rad = size * 0.42;
+    let a0 = std::f32::consts::PI * 0.75;
+    let sweep = std::f32::consts::PI * 1.5;
+    let arc = |from: f32, to: f32| -> Vec<egui::Pos2> {
+        let n = 24;
+        (0..=n).map(|i| {
+            let a = from + (to - from) * i as f32 / n as f32;
+            c + egui::vec2(a.cos(), a.sin()) * rad
+        }).collect()
+    };
+    p.add(egui::Shape::line(arc(a0, a0 + sweep), egui::Stroke::new(3.0, theme::SLOT)));
+    if t > 0.0 {
+        p.add(egui::Shape::line(arc(a0, a0 + sweep * t), egui::Stroke::new(3.0, color)));
+    }
+    let a = a0 + sweep * t;
+    p.line_segment([c, c + egui::vec2(a.cos(), a.sin()) * rad], egui::Stroke::new(1.5, theme::TEXT));
+    resp
 }

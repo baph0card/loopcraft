@@ -58,11 +58,11 @@ impl Core {
                 let midi_fx = t
                     .midi_effects
                     .iter()
-                    .filter_map(|s| build(s, sr, loader, plugins).and_then(Device::into_midi_effect))
-                    .map(|fx| MidiFxSlot { fx, bypass: false })
+                    .enumerate()
+                    .filter_map(|(j, s)| build(s, sr, loader, plugins).and_then(Device::into_midi_effect).map(|fx| MidiFxSlot { fx, bypass: t.midi_bypassed.contains(&j) }))
                     .collect();
                 let mut arrangement: Vec<ArrClip> =
-                    t.arrangement.iter().map(|a| ArrClip { start: a.start, end: a.end(), clip: RtClip::from_clip_with(&a.clip, loader, &p.grooves) }).collect();
+                    t.arrangement.iter().map(|a| ArrClip { start: a.start, offset: a.offset, end: a.end(), clip: RtClip::from_clip_with(&a.clip, loader, &p.grooves) }).collect();
                 arrangement.sort_by(|a, b| a.start.total_cmp(&b.start));
                 Track {
                     kind: t.kind,
