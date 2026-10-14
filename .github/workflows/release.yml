@@ -73,7 +73,7 @@ jobs:
           cp target/release/loopcraft-app target/release/loopcraft-cli README.md LICENSE-MIT LICENSE-APACHE dist/loopcraft/
           tar -C dist -czf LoopCraft-${{ steps.v.outputs.version }}-${{ matrix.name }}.tar.gz loopcraft
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: LoopCraft-*
