@@ -179,7 +179,11 @@ unsafe extern "C" fn gui_can_resize(_: *const clap_plugin) -> bool {
     false
 }
 unsafe extern "C" fn gui_set_parent(p: *const clap_plugin, w: *const clap_window) -> bool {
-    unsafe { data(p).parent = (*w).specific.x11 };
+    // `x11` is a C unsigned long: 32-bit on Windows, 64-bit elsewhere.
+    #[allow(clippy::unnecessary_cast)]
+    unsafe {
+        data(p).parent = (*w).specific.x11 as u64
+    };
     true
 }
 unsafe extern "C" fn gui_show(p: *const clap_plugin) -> bool {
