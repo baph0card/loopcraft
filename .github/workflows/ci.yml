@@ -4,20 +4,23 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 env:
-  CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: never
 
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.97.0"
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Install ALSA headers
@@ -27,10 +30,41 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo fmt --all --check
       - name: Clippy
+        shell: bash
         # Warnings fail the build on Linux (the platform it's developed on);
         # elsewhere they're reported but don't block.
-        run: cargo clippy --workspace --all-targets ${{ runner.os == 'Linux' && '-- -D warnings' || '' }}
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --all-targets ${{ runner.os == 'Linux' && '-- -D warnings' || '' }} 2>&1 | tee build.log
       - name: Test
-        run: cargo test --workspace
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --workspace 2>&1 | tee build.log
       - name: Build app
-        run: cargo build --release -p loopcraft-app
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo build --release -p loopcraft-app 2>&1 | tee build.log
+      - name: Report errors as annotations
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          log = open("build.log", encoding="utf-8", errors="replace").read().splitlines()
+          out, i = [], 0
+          while i < len(log) and len(out) < 10:
+              l = log[i]
+              if re.match(r"^(error|warning)(\[\w+\])?: ", l) or "panicked at" in l or l.startswith("---- "):
+                  block = [l]
+                  j = i + 1
+                  while j < len(log) and log[j].strip() and len(block) < 14:
+                      block.append(log[j]); j += 1
+                  out.append("%0A".join(b.replace("%", "%25") for b in block))
+                  i = j
+              else:
+                  i += 1
+          for b in out:
+              print("::error title=build::" + b)
+          PY
