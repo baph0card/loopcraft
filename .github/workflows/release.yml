@@ -1,0 +1,99 @@
+name: Release
+
+# Push a tag like v0.3.0 to build downloadable apps for macOS, Windows and
+# Linux and attach them to a GitHub release. Can also be run by hand from
+# the Actions tab (the builds are then kept as workflow artifacts).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos-apple-silicon
+          - os: macos-13
+            name: macos-intel
+          - os: windows-latest
+            name: windows-x64
+          - os: ubuntu-22.04
+            name: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install ALSA headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - name: Build
+        run: cargo build --release -p loopcraft-app -p loopcraft-cli
+      - name: Version
+        id: v
+        shell: bash
+        run: echo "version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Package (macOS app bundle)
+        if: runner.os == 'macOS'
+        run: |
+          APP=dist/LoopCraft.app
+          mkdir -p "$APP/Contents/MacOS"
+          cp target/release/loopcraft-app "$APP/Contents/MacOS/"
+          sed "s/VERSION/${{ steps.v.outputs.version }}/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
+          # Ad-hoc signature: required to run on Apple Silicon. Not notarized.
+          codesign --force --deep --sign - "$APP"
+          cp target/release/loopcraft-cli dist/
+          cd dist && ditto -c -k --keepParent LoopCraft.app ../LoopCraft-${{ steps.v.outputs.version }}-${{ matrix.name }}.zip
+          zip -j ../LoopCraft-${{ steps.v.outputs.version }}-${{ matrix.name }}.zip loopcraft-cli
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/release/loopcraft-app.exe dist/LoopCraft.exe
+          Copy-Item target/release/loopcraft-cli.exe dist/
+          Copy-Item README.md, LICENSE-MIT, LICENSE-APACHE dist/
+          Compress-Archive -Path dist/* -DestinationPath LoopCraft-${{ steps.v.outputs.version }}-${{ matrix.name }}.zip
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist/loopcraft
+          cp target/release/loopcraft-app target/release/loopcraft-cli README.md LICENSE-MIT LICENSE-APACHE dist/loopcraft/
+          tar -C dist -czf LoopCraft-${{ steps.v.outputs.version }}-${{ matrix.name }}.tar.gz loopcraft
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: LoopCraft-*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
+          body: |
+            Unsigned builds. On first launch:
+            - **macOS:** right-click LoopCraft.app → Open → Open (Gatekeeper blocks unsigned apps on double-click). If macOS says the app is damaged, run `xattr -dr com.apple.quarantine LoopCraft.app`.
+            - **Windows:** SmartScreen may warn; choose More info → Run anyway.
+
+            Not yet tested on real audio hardware. Please file issues with what you find.

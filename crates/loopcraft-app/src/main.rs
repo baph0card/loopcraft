@@ -3,6 +3,8 @@
 //! Usage: `loopcraft-app [project.loopcraft]`. With no argument it opens
 //! the bundled demo song (written to a temp folder on first run).
 
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod audio;
 mod ui;

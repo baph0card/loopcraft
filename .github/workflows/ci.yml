@@ -24,10 +24,13 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Format
+        if: runner.os == 'Linux'
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        # Warnings fail the build on Linux (the platform it's developed on);
+        # elsewhere they're reported but don't block.
+        run: cargo clippy --workspace --all-targets ${{ runner.os == 'Linux' && '-- -D warnings' || '' }}
       - name: Test
-        run: cargo test
+        run: cargo test --workspace
       - name: Build app
         run: cargo build --release -p loopcraft-app

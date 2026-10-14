@@ -1,0 +1,33 @@
+name: Bug report
+description: Something doesn't work, sounds wrong, or crashes
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: OS and version, CPU (e.g. macOS 15.1, M3), LoopCraft version
+    validations:
+      required: true
+  - type: input
+    id: audio
+    attributes:
+      label: Audio / MIDI hardware
+      description: Interface, sample rate, buffer size, controllers. LoopCraft hasn't been tested on much real hardware, so this helps a lot.
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin (if any)
+      description: Name, vendor, format (CLAP / VST3), version
+  - type: textarea
+    id: log
+    attributes:
+      label: Terminal output or crash log
+      render: text

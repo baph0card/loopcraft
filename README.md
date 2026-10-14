@@ -52,12 +52,18 @@ Clips also support warp markers, transpose, gain, reverse and fades. Import read
 
 ![Device chain: an Arpeggiator into an Instrument Rack, then a Saturator](docs/screenshots/devices.png)
 
-## Try it
+## Download
 
-You need a recent Rust toolchain (1.85+). On Linux you also need ALSA headers (`libasound2-dev` on Debian/Ubuntu).
+Ready-to-run builds for macOS (Apple Silicon and Intel), Windows and Linux are on the [Releases page](https://github.com/baph0card/loopcraft/releases). They're unsigned:
+- **macOS:** right-click `LoopCraft.app` → **Open** → **Open** the first time. If macOS says it's damaged, run `xattr -dr com.apple.quarantine LoopCraft.app`.
+- **Windows:** if SmartScreen warns, choose **More info** → **Run anyway**.
+
+## Build from source
+
+You need Rust 1.88 or newer (install from [rustup.rs](https://rustup.rs)). On macOS, also run `xcode-select --install`; on Windows, install Visual Studio Build Tools with "Desktop development with C++"; on Linux, install ALSA headers (`libasound2-dev` on Debian/Ubuntu).
 
 ```sh
-git clone https://github.com/loopcraft/loopcraft
+git clone https://github.com/baph0card/loopcraft
 cd loopcraft
 
 # The desktop app. With no argument it opens the demo song.

@@ -22,9 +22,9 @@ default-members = [
 version = "0.3.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/loopcraft/loopcraft"
+repository = "https://github.com/baph0card/loopcraft"
 authors = ["LoopCraft contributors"]
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 loopcraft-core = { path = "crates/loopcraft-core" }

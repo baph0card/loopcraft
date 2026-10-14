@@ -1,3 +1,5 @@
 target/
 *.wav
 !examples/**/*.wav
+dist/
+.DS_Store
