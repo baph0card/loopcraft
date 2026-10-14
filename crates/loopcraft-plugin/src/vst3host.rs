@@ -19,6 +19,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering::*};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+#[allow(unused_imports)]
 use vst3::Steinberg::Linux::{IEventHandler, IEventHandlerTrait, IRunLoop, IRunLoopTrait, ITimerHandler, ITimerHandlerTrait};
 use vst3::Steinberg::Vst::*;
 use vst3::Steinberg::*;
@@ -84,7 +85,8 @@ fn bundle_binary(path: &Path) -> PathBuf {
     let candidates: Vec<PathBuf> = if cfg!(target_os = "macos") {
         vec![c.join("MacOS").join(&stem)]
     } else if cfg!(target_os = "windows") {
-        vec![c.join("x86_64-win").join(format!("{stem}.vst3"))]
+        let arch = if cfg!(target_arch = "aarch64") { "arm64-win" } else { "x86_64-win" };
+        vec![c.join(arch).join(format!("{stem}.vst3"))]
     } else {
         let arch = if cfg!(target_arch = "aarch64") { "aarch64-linux" } else { "x86_64-linux" };
         vec![c.join(arch).join(format!("{stem}.so"))]
@@ -123,10 +125,13 @@ impl Vst3Library {
             }
             #[cfg(target_os = "macos")]
             {
-                // Not tested: no macOS build machine. The SDK exports bundleEntry;
-                // some plugins export BundleEntry.
+                // The SDK's bundleEntry retains the CFBundleRef it's given and
+                // uses it to find its resources, so it must be a real bundle.
                 if let Ok(entry) = lib.get::<unsafe extern "system" fn(*mut c_void) -> bool>(b"bundleEntry").or_else(|_| lib.get(b"BundleEntry")) {
-                    entry(ptr::null_mut());
+                    let bundle = macos::cf_bundle(path);
+                    if !entry(bundle) {
+                        return Err("bundleEntry failed".into());
+                    }
                 }
                 exit = lib.get::<ExitFn>(b"bundleExit").or_else(|_| lib.get::<ExitFn>(b"BundleExit")).ok().map(|s| *s);
             }
@@ -1246,9 +1251,13 @@ impl Vst3Device {
                 s.started.store(true, Release);
             }
             let c = &mut *self.context;
-            c.state = ProcessContext_::StatesAndFlags_::kTempoValid
-                | ProcessContext_::StatesAndFlags_::kProjectTimeMusicValid
-                | if ctx.playing { ProcessContext_::StatesAndFlags_::kPlaying } else { 0 };
+            // The flag constants are u32 on some platforms and i32 on others.
+            #[allow(clippy::unnecessary_cast)]
+            {
+                c.state = ProcessContext_::StatesAndFlags_::kTempoValid as u32
+                    | ProcessContext_::StatesAndFlags_::kProjectTimeMusicValid as u32
+                    | if ctx.playing { ProcessContext_::StatesAndFlags_::kPlaying as u32 } else { 0 };
+            }
             c.sampleRate = s.sample_rate;
             c.tempo = ctx.tempo;
             c.projectTimeMusic = ctx.beat;
@@ -1361,5 +1370,38 @@ impl Instrument for Vst3Device {
 
     fn name(&self) -> &str {
         &self.shared.name
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::ffi::c_void;
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Path;
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFURLCreateFromFileSystemRepresentation(alloc: *const c_void, buf: *const u8, len: isize, is_dir: u8) -> *const c_void;
+        fn CFBundleCreate(alloc: *const c_void, url: *const c_void) -> *mut c_void;
+        fn CFRelease(cf: *const c_void);
+    }
+
+    /// A CFBundleRef for a `.vst3` bundle directory, or null if `path` isn't
+    /// one. Deliberately kept alive for the life of the process: the plugin
+    /// holds on to it until bundleExit.
+    pub fn cf_bundle(path: &Path) -> *mut c_void {
+        if !path.is_dir() {
+            return std::ptr::null_mut();
+        }
+        let bytes = path.as_os_str().as_bytes();
+        unsafe {
+            let url = CFURLCreateFromFileSystemRepresentation(std::ptr::null(), bytes.as_ptr(), bytes.len() as isize, 1);
+            if url.is_null() {
+                return std::ptr::null_mut();
+            }
+            let b = CFBundleCreate(std::ptr::null(), url);
+            CFRelease(url);
+            b
+        }
     }
 }

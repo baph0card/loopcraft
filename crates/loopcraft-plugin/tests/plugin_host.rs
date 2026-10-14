@@ -28,10 +28,17 @@ fn clap_lib() -> PathBuf {
 fn vst3_bundle() -> PathBuf {
     let so = example_lib("vst3_test_plugin");
     let root = std::env::temp_dir().join(format!("lc-vst3-{}", std::process::id()));
-    let arch = if cfg!(target_arch = "aarch64") { "aarch64-linux" } else { "x86_64-linux" };
-    let bin_dir = root.join("Test Gain.vst3/Contents").join(arch);
+    // The per-platform layout from the VST3 SDK's bundle format.
+    let (dir, file) = if cfg!(target_os = "macos") {
+        ("MacOS", "Test Gain")
+    } else if cfg!(target_os = "windows") {
+        (if cfg!(target_arch = "aarch64") { "arm64-win" } else { "x86_64-win" }, "Test Gain.vst3")
+    } else {
+        (if cfg!(target_arch = "aarch64") { "aarch64-linux" } else { "x86_64-linux" }, "Test Gain.so")
+    };
+    let bin_dir = root.join("Test Gain.vst3/Contents").join(dir);
     std::fs::create_dir_all(&bin_dir).unwrap();
-    let dst = bin_dir.join("Test Gain.so");
+    let dst = bin_dir.join(file);
     if !dst.exists() {
         std::fs::copy(&so, &dst).unwrap();
     }
