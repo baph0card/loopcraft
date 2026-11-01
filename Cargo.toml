@@ -40,7 +40,7 @@ rtrb = "0.4"
 clap-sys = "0.5"
 libloading = "0.9"
 cpal = "0.18"
-eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
 anyhow = "1"
 rustfft = "6"
 symphonia = { version = "0.5", features = ["mp3", "aiff"] }
